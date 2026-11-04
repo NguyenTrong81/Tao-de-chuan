@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Ra Đề Kiểm Tra Tự Động</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- External Libraries for File Parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        primary: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' }
+                    }
+                }
+            }
+        }
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .step-content { display: none; animation: fadeIn 0.3s ease-in-out; }
+        .step-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .matrix-input { width: 50px; text-align: center; border: 1px solid transparent; border-radius: 4px; padding: 4px; background: transparent; }
+        .matrix-input:hover { border-color: #cbd5e1; background: white; }
+        .matrix-input:focus { border-color: #3b82f6; background: white; outline: none; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
+        
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 50; }
+        .toast { transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .toast.show { transform: translateX(0); }
+        
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Modal Overlay */
+        #bank-modal { display: none; }
+        #bank-modal.active { display: flex; animation: fadeIn 0.2s ease-out; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- Navbar -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shrink-0">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="resetApp()">
+                <div class="w-8 h-8 bg-gradient-to-br from-primary-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold shadow-md">
+                    <i class="fa-solid fa-robot text-sm"></i>
+                </div>
+                <span class="font-bold text-xl tracking-tight text-slate-800">EduAI<span class="text-primary-600">Test</span></span>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="openBankModal()" class="text-slate-600 hover:text-primary-600 font-medium text-sm flex items-center gap-2 transition">
+                    <i class="fa-solid fa-layer-group"></i> Ngân hàng của tôi
+                </button>
+                <div class="h-8 w-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center overflow-hidden cursor-pointer" id="user-avatar" title="Đang kết nối...">
+                    <i class="fa-solid fa-user text-slate-400"></i>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 overflow-hidden flex flex-col relative">
+        <!-- Overlay Loading AI -->
+        <div id="ai-loading-overlay" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-30 hidden flex-col items-center justify-center">
+            <div class="loader mb-4" style="width: 40px; height: 40px; border-width: 4px;"></div>
+            <h3 class="text-lg font-bold text-slate-800 mb-1" id="ai-loading-title">AI Đang Xử Lý...</h3>
+            <p class="text-sm text-slate-500" id="ai-loading-desc">Vui lòng chờ trong giây lát.</p>
+        </div>
+
+        <!-- Stepper -->
+        <div class="bg-white border-b border-slate-200 px-4 py-3 shrink-0 overflow-x-auto">
+            <div class="max-w-7xl mx-auto flex items-center justify-between min-w-[700px]">
+                <div id="stepper-container" class="flex w-full items-center"></div>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6 lg:p-8 relative" id="main-scroll-area">
+            <div class="max-w-6xl mx-auto">
+                
+                <!-- STEP 1: THIẾT LẬP -->
+                <div id="step-1" class="step-content active">
+                    <div class="mb-6">
+                        <h2 class="text-2xl font-bold text-slate-800">Thiết lập thông số & Học liệu</h2>
+                        <p class="text-slate-500 mt-1">Khai báo thông tin cơ bản và cung cấp tài liệu để AI phân tích cấu trúc đề.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 class="font-semibold text-slate-800 border-b pb-3 mb-4"><i class="fa-solid fa-sliders text-primary-500 mr-2"></i>Thông số cơ bản</h3>
+                            <div class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">Cấp học</label>
+                                        <select id="p-caphoc" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm">
+                                            <option>THPT</option><option>THCS</option><option>Tiểu học</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">Môn học</label>
+                                        <input type="text" id="p-monhoc" value="Toán học" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">Khối lớp</label>
+                                        <select id="p-khoilop" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm">
+                                            <option>Lớp 12</option><option>Lớp 11</option><option>Lớp 10</option>
+                                            <option>Lớp 9</option><option>Lớp 8</option><option>Lớp 7</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">Kỳ kiểm tra</label>
+                                        <select id="p-kykiemtra" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm">
+                                            <option>Giữa HK1</option><option>Cuối HK1</option><option>Giữa HK2</option><option>Cuối HK2</option><option>Kiểm tra 15p</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                     <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">Thời gian (phút)</label>
+                                        <input type="number" id="p-thoigian" value="45" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">Cấu trúc đề</label>
+                                        <select id="p-cautruc" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm">
+                                            <option>Trắc nghiệm 100%</option>
+                                            <option>Trắc nghiệm + Tự luận</option>
+                                            <option>Định dạng Bộ GD 2025</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                             <h3 class="font-semibold text-slate-800 border-b pb-3 mb-4"><i class="fa-solid fa-file-arrow-up text-primary-500 mr-2"></i>Nguồn dữ liệu / Phạm vi</h3>
+                             
+                             <label class="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center bg-slate-50 hover:bg-primary-50 transition cursor-pointer group mb-4">
+                                 <input type="file" id="file-upload" accept=".pdf,.doc,.docx" class="hidden" onchange="handleFileUpload(event)">
+                                 <div class="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                                    <i class="fa-solid fa-cloud-arrow-up text-xl text-primary-500"></i>
+                                 </div>
+                                 <p class="text-sm font-medium text-slate-700 mb-1" id="file-name-display">Click hoặc Kéo thả Ma trận mẫu / SGK</p>
+                                 <p class="text-xs text-slate-500">Hỗ trợ PDF, Word (.docx). Tối đa 5MB.</p>
+                             </label>
+
+                             <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Chi tiết phạm vi kiến thức (Bắt buộc hoặc Tùy chọn nếu đã tải file):</label>
+                                <textarea id="p-phamvi" rows="4" class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-primary-500 outline-none text-sm resize-none" placeholder="VD: Chương I: Động lực học (Bài 1, Bài 2). Hoặc copy paste nội dung kế hoạch dạy học vào đây..."></textarea>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 2: MA TRẬN -->
+                <div id="step-2" class="step-content">
+                    <div class="mb-4 flex justify-between items-end">
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-800">Ma trận Đề kiểm tra</h2>
+                            <p class="text-slate-500 mt-1">AI đã phân tích và lập ma trận. Nhấp vào các ô số để điều chỉnh, hệ thống sẽ tự động tính lại.</p>
+                        </div>
+                        <div class="flex gap-2">
+                             <button onclick="generateMatrixAI()" class="text-sm bg-white border border-primary-300 hover:bg-primary-50 text-primary-700 px-3 py-1.5 rounded-lg shadow-sm transition">
+                                <i class="fa-solid fa-rotate-right mr-1"></i> Sinh lại bằng AI
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-sm text-left whitespace-nowrap">
+                                <thead class="text-xs text-slate-700 uppercase bg-slate-100 border-b">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-4 font-semibold w-1/3 min-w-[250px]">Chủ đề / Bài / Mạch kiến thức</th>
+                                        <th scope="col" class="px-4 py-4 text-center font-semibold border-l border-slate-200">Nhận biết</th>
+                                        <th scope="col" class="px-4 py-4 text-center font-semibold border-l border-slate-200">Thông hiểu</th>
+                                        <th scope="col" class="px-4 py-4 text-center font-semibold border-l border-slate-200">Vận dụng</th>
+                                        <th scope="col" class="px-4 py-4 text-center font-semibold border-l border-slate-200">VD Cao</th>
+                                        <th scope="col" class="px-4 py-4 text-center font-semibold bg-blue-50 border-l border-blue-100">Tổng câu</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="matrix-body" class="divide-y divide-slate-200">
+                                    <!-- Generated by JS -->
+                                </tbody>
+                                <tfoot class="bg-slate-50 font-semibold border-t-2 border-slate-200 text-slate-800">
+                                    <tr>
+                                        <td class="px-6 py-4 flex items-center justify-between">
+                                            <button onclick="addMatrixRow()" class="text-xs text-primary-600 hover:underline"><i class="fa-solid fa-plus"></i> Thêm chủ đề</button>
+                                            <span>Tổng số câu:</span>
+                                        </td>
+                                        <td class="px-4 py-4 text-center border-l" id="tot-nb">0</td>
+                                        <td class="px-4 py-4 text-center border-l" id="tot-th">0</td>
+                                        <td class="px-4 py-4 text-center border-l" id="tot-vd">0</td>
+                                        <td class="px-4 py-4 text-center border-l" id="tot-vdc">0</td>
+                                        <td class="px-4 py-4 text-center border-l bg-blue-50 text-primary-700 text-lg" id="tot-all">0</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 3: ĐẶC TẢ -->
+                <div id="step-3" class="step-content">
+                    <div class="mb-4">
+                        <h2 class="text-2xl font-bold text-slate-800">Bản đặc tả chi tiết</h2>
+                        <p class="text-slate-500 mt-1">AI chi tiết hóa các mức độ nhận thức thành Tiêu chí đánh giá. Bạn có thể sửa trực tiếp văn bản.</p>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs text-slate-700 uppercase bg-slate-100 border-b">
+                                    <tr>
+                                        <th class="px-6 py-4 font-semibold w-48">Chủ đề</th>
+                                        <th class="px-6 py-4 font-semibold w-32 text-center">Mức độ</th>
+                                        <th class="px-6 py-4 font-semibold">Tiêu chí / Yêu cầu cần đạt</th>
+                                        <th class="px-4 py-4 font-semibold text-center w-24">Số câu</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-200" id="spec-body">
+                                    <!-- Generated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 4: SOẠN ĐỀ -->
+                <div id="step-4" class="step-content h-full flex flex-col">
+                    <div class="mb-4 flex justify-between items-center shrink-0">
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-800">Biên tập Đề thi (Bản gốc)</h2>
+                            <p class="text-slate-500 mt-1 text-sm">AI đã sinh câu hỏi bám sát đặc tả. Review, chỉnh sửa hoặc yêu cầu sinh lại từng câu.</p>
+                        </div>
+                        <button onclick="saveProjectToCloud()" class="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm shadow-sm hover:bg-slate-50 transition flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-up text-primary-500"></i> Lưu lên Cloud
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col md:flex-row gap-6 items-start flex-1 overflow-hidden min-h-[400px]">
+                        <div class="w-full md:w-64 shrink-0 bg-white border border-slate-200 rounded-xl shadow-sm h-full flex flex-col overflow-hidden hidden md:flex">
+                            <div class="p-3 border-b bg-slate-50 font-semibold text-sm text-slate-700 flex justify-between items-center">
+                                Mục lục
+                                <span class="bg-primary-100 text-primary-700 text-xs px-2 py-0.5 rounded-full" id="q-count-badge">0</span>
+                            </div>
+                            <div class="overflow-y-auto p-2 custom-scrollbar flex-1 space-y-1" id="q-nav-list">
+                                <!-- JS -->
+                            </div>
+                        </div>
+
+                        <div class="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm h-full flex flex-col overflow-hidden relative w-full">
+                            <div class="border-b p-2 bg-slate-50 flex gap-2 items-center text-sm text-slate-500 px-4">
+                                <i class="fa-solid fa-circle-info mr-1"></i> Có thể chỉnh sửa nội dung câu hỏi và đáp án trực tiếp bằng cách click vào chữ. Đánh dấu tròn (Radio) để chọn đáp án đúng.
+                            </div>
+                            
+                            <div class="overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar flex-1 bg-slate-50/50" id="questions-container">
+                                <!-- Cards JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 5: TRỘN ĐỀ -->
+                <div id="step-5" class="step-content">
+                    <div class="mb-6 text-center max-w-2xl mx-auto">
+                        <div class="w-16 h-16 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                            <i class="fa-solid fa-check-double"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-slate-800">Hoàn tất biên tập đề gốc</h2>
+                        <p class="text-slate-500 mt-2">Cấu hình thuật toán hoán vị để tạo các mã đề khác nhau.</p>
+                    </div>
+
+                    <div class="max-w-xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <h3 class="font-semibold text-slate-800 mb-4 border-b pb-2">Cấu hình trộn đề</h3>
+                        <div class="space-y-5">
+                            <div>
+                                <label class="flex justify-between text-sm font-medium text-slate-700 mb-2">
+                                    Số lượng mã đề cần tạo: <span class="text-primary-600 font-bold text-lg" id="mix-count-val">4</span>
+                                </label>
+                                <input type="range" id="mix-count" min="1" max="24" value="4" class="w-full accent-primary-600" oninput="document.getElementById('mix-count-val').innerText = this.value">
+                                <div class="flex justify-between text-xs text-slate-400 mt-1">
+                                    <span>1 mã</span><span>24 mã</span>
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-3 pt-3">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" id="mix-q" checked class="w-4 h-4 text-primary-600 rounded border-slate-300">
+                                    <span class="text-sm text-slate-700">Đảo vị trí câu hỏi</span>
+                                </label>
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" id="mix-opt" checked class="w-4 h-4 text-primary-600 rounded border-slate-300">
+                                    <span class="text-sm text-slate-700">Đảo phương án A, B, C, D</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 6: XUẤT BẢN -->
+                <div id="step-6" class="step-content">
+                     <div class="mb-8 text-center">
+                        <h2 class="text-2xl font-bold text-slate-800">Sẵn sàng xuất bản! 🎉</h2>
+                        <p class="text-slate-500 mt-1">Vui lòng tải xuống tệp MS Word chuẩn định dạng in ấn.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+                        <div class="bg-white border border-slate-200 rounded-xl p-6 flex flex-col items-center text-center shadow-sm hover:shadow-md transition">
+                            <div class="w-16 h-16 bg-blue-50 text-primary-500 rounded-2xl flex items-center justify-center mb-4 text-2xl">
+                                <i class="fa-solid fa-file-word"></i>
+                            </div>
+                            <h3 class="font-semibold text-lg text-slate-800 mb-1">Tải Mã Đề Đã Trộn</h3>
+                            <p class="text-sm text-slate-500 mb-6 flex-1">File Word chứa các mã đề kiểm tra dành cho học sinh (không kèm đáp án).</p>
+                            <button onclick="exportDocx('exams')" class="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-2.5 rounded-lg transition shadow-sm">
+                                <i class="fa-solid fa-download mr-2"></i> Tải Đề Kiểm Tra
+                            </button>
+                        </div>
+
+                        <div class="bg-white border border-slate-200 rounded-xl p-6 flex flex-col items-center text-center shadow-sm hover:shadow-md transition">
+                            <div class="w-16 h-16 bg-green-50 text-green-500 rounded-2xl flex items-center justify-center mb-4 text-2xl">
+                                <i class="fa-solid fa-table-list"></i>
+                            </div>
+                            <h3 class="font-semibold text-lg text-slate-800 mb-1">Tải Đáp Án & Hướng Dẫn</h3>
+                            <p class="text-sm text-slate-500 mb-6 flex-1">File Word chứa bảng đáp án trắc nghiệm và hướng dẫn chấm tự luận.</p>
+                            <button onclick="exportDocx('answers')" class="w-full bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium py-2.5 rounded-lg transition shadow-sm">
+                                <i class="fa-solid fa-download mr-2"></i> Tải Đáp Án
+                            </button>
+                        </div>
+                        
+                        <div class="bg-white border border-slate-200 rounded-xl p-6 flex flex-col items-center text-center shadow-sm hover:shadow-md transition">
+                            <div class="w-16 h-16 bg-purple-50 text-purple-500 rounded-2xl flex items-center justify-center mb-4 text-2xl">
+                                <i class="fa-solid fa-folder-open"></i>
+                            </div>
+                            <h3 class="font-semibold text-lg text-slate-800 mb-1">Tải Hồ Sơ Chuyên Môn</h3>
+                            <p class="text-sm text-slate-500 mb-6 flex-1">File Word chứa Ma trận và Bản đặc tả chi tiết dùng để lưu hồ sơ trình ký.</p>
+                            <button onclick="exportDocx('matrix_specs')" class="w-full bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium py-2.5 rounded-lg transition shadow-sm">
+                                <i class="fa-solid fa-download mr-2"></i> Tải Ma trận & Đặc tả
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8 text-center">
+                         <button onclick="exportDocx('all')" class="bg-slate-800 hover:bg-slate-900 text-white font-medium py-3 px-8 rounded-xl transition shadow-lg inline-flex items-center gap-2">
+                            <i class="fa-solid fa-file-zipper"></i> Tải Toàn Bộ Hồ Sơ (Gộp 1 File)
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="bg-white border-t border-slate-200 p-4 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10" id="footer-actions">
+            <div class="max-w-6xl mx-auto flex justify-between items-center">
+                <button id="btn-prev" onclick="prevStep()" class="px-5 py-2.5 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition invisible">
+                    <i class="fa-solid fa-arrow-left mr-2"></i> Quay lại
+                </button>
+                <button id="btn-next" onclick="nextStep()" class="px-6 py-2.5 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition shadow-sm flex items-center gap-2">
+                    <span id="next-btn-text">Bắt đầu</span> <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- My Bank Modal -->
+    <div id="bank-modal" class="fixed inset-0 bg-slate-900/50 z-50 items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                <h3 class="text-lg font-bold text-slate-800"><i class="fa-solid fa-cloud text-primary-500 mr-2"></i> Ngân hàng đề của tôi</h3>
+                <button onclick="closeBankModal()" class="text-slate-400 hover:text-slate-700 p-1"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1 bg-slate-50/50" id="bank-list">
+                <div class="text-center text-slate-500 py-10"><i class="fa-solid fa-circle-notch fa-spin"></i> Đang tải dữ liệu...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast-container">
+        <div id="custom-toast" class="toast bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 mb-4 hidden">
+            <i class="fa-solid fa-circle-check text-green-400" id="toast-icon"></i>
+            <span id="toast-msg" class="text-sm font-medium"></span>
+        </div>
+    </div>
+
+    <!-- Firebase & Logic Scripts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, getDocs, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Environment Setup
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'edu-ai-test-app';
+        let firebaseConfig = {};
+        try { firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}'); } catch(e) {}
+        
+        let app, db, auth, currentUser = null;
+        if(Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                signInWithCustomToken(auth, __initial_auth_token).catch(e => signInAnonymously(auth));
+            } else {
+                signInAnonymously(auth);
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    document.getElementById('user-avatar').innerHTML = `<img src="https://ui-avatars.com/api/?name=${user.uid.substring(0,2)}&background=0D8ABC&color=fff" alt="User">`;
+                    document.getElementById('user-avatar').title = "ID: " + user.uid;
+                }
+            });
+        }
+
+        // --- GLOBAL STATE ---
+        const API_KEY = ""; // Gemini API Key injected by Canvas
+        window.projectState = {
+            id: 'proj_' + Date.now(),
+            params: {},
+            extractedText: "",
+            matrix: [],
+            specs: [],
+            questions: [],
+            mixedExams: []
+        };
+
+        let currentStep = 1;
+        const totalSteps = 6;
+        const stepsInfo = [
+            { id: 1, title: 'Thiết lập', icon: 'fa-sliders', actionText: 'Phân tích Học liệu & Lập Ma Trận' },
+            { id: 2, title: 'Ma trận', icon: 'fa-table-cells', actionText: 'Lập Bản Đặc tả Chi Tiết' },
+            { id: 3, title: 'Đặc tả', icon: 'fa-list-check', actionText: 'AI Sinh Đề Gốc' },
+            { id: 4, title: 'Soạn đề', icon: 'fa-pen-to-square', actionText: 'Chốt Đề & Cấu hình Trộn' },
+            { id: 5, title: 'Trộn đề', icon: 'fa-shuffle', actionText: 'Trộn & Xuất bản File' },
+            { id: 6, title: 'Xuất bản', icon: 'fa-file-export', actionText: '' }
+        ];
+
+        // --- UTILS ---
+        window.showToast = (message, isError = false) => {
+            const toast = document.getElementById('custom-toast');
+            document.getElementById('toast-msg').innerText = message;
+            const icon = document.getElementById('toast-icon');
+            icon.className = isError ? 'fa-solid fa-circle-exclamation text-red-400' : 'fa-solid fa-circle-check text-green-400';
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.classList.add('hidden'), 300);
+            }, 3000);
+        };
+
+        window.showLoading = (title, desc) => {
+            document.getElementById('ai-loading-title').innerText = title;
+            document.getElementById('ai-loading-desc').innerText = desc;
+            document.getElementById('ai-loading-overlay').classList.remove('hidden');
+            document.getElementById('ai-loading-overlay').classList.add('flex');
+        };
+
+        window.hideLoading = () => {
+            document.getElementById('ai-loading-overlay').classList.add('hidden');
+            document.getElementById('ai-loading-overlay').classList.remove('flex');
+        };
+
+        // --- GEMINI API CALLER ---
+        async function callGemini(prompt, schema = null, systemInstruction = "Bạn là chuyên gia giáo dục, thiết kế bài kiểm tra chuyên nghiệp.") {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`;
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] },
+                generationConfig: {}
+            };
+
+            if (schema) {
+                payload.generationConfig.responseMimeType = "application/json";
+                payload.generationConfig.responseSchema = schema;
+            }
+
+            try {
+                const res = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!res.ok) throw new Error("API Lỗi: " + res.statusText);
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error("Không có dữ liệu trả về từ AI.");
+                return schema ? JSON.parse(text) : text;
+            } catch (err) {
+                console.error("Gemini Error:", err);
+                throw err;
+            }
+        }
+
+        // --- FILE PARSING ---
+        window.handleFileUpload = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            document.getElementById('file-name-display').innerText = file.name;
+            window.showToast("Đang đọc file...");
+            
+            try {
+                let text = "";
+                if (file.name.toLowerCase().endsWith('.pdf')) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                    for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) { // Limit 10 pages for speed/token limit
+                        const page = await pdf.getPage(i);
+                        const content = await page.getTextContent();
+                        text += content.items.map(item => item.str).join(' ') + "\n";
+                    }
+                } else if (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc')) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const result = await mammoth.extractRawText({arrayBuffer: arrayBuffer});
+                    text = result.value;
+                }
+                
+                window.projectState.extractedText = text;
+                window.showToast("Đã trích xuất văn bản thành công!");
+                
+                // Append extracted summary to textarea for user visibility
+                const ta = document.getElementById('p-phamvi');
+                if(!ta.value.includes("--- NỘI DUNG TỪ FILE ---")) {
+                    ta.value += (ta.value ? "\n\n" : "") + "--- NỘI DUNG TỪ FILE ---\n" + text.substring(0, 500) + "...";
+                }
+            } catch (e) {
+                console.error(e);
+                window.showToast("Lỗi khi đọc file. Vui lòng copy paste văn bản trực tiếp.", true);
+            }
+        };
+
+        // --- AI GENERATORS ---
+
+        // STEP 1 -> 2: Matrix
+        window.generateMatrixAI = async () => {
+            const mon = document.getElementById('p-monhoc').value;
+            const lop = document.getElementById('p-khoilop').value;
+            const caphoc = document.getElementById('p-caphoc').value;
+            const cautruc = document.getElementById('p-cautruc').value;
+            const textScope = document.getElementById('p-phamvi').value + "\n" + window.projectState.extractedText.substring(0, 3000);
+            
+            if(!textScope.trim()) {
+                window.showToast("Vui lòng nhập phạm vi kiến thức hoặc tải tài liệu!", true);
+                return false;
+            }
+
+            showLoading("Phân tích dữ liệu & Lập ma trận", "AI đang phân chia cấu trúc kiến thức theo quy định hiện hành...");
+            const schema = {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        "id": { type: "INTEGER" },
+                        "topic": { type: "STRING" },
+                        "nb": { type: "INTEGER", description: "Số câu Nhận biết (hoặc Mức 1)" },
+                        "th": { type: "INTEGER", description: "Số câu Thông hiểu (hoặc Mức 2)" },
+                        "vd": { type: "INTEGER", description: "Số câu Vận dụng (hoặc Mức 3)" },
+                        "vdc": { type: "INTEGER", description: "Số câu Vận dụng cao. Nếu là Tiểu học thì bắt buộc bằng 0" }
+                    },
+                    required: ["id", "topic", "nb", "th", "vd", "vdc"]
+                }
+            };
+            
+            let rule = caphoc === "Tiểu học" 
+                ? "Áp dụng Thông tư 27/2020/TT-BGDĐT: Chỉ có 3 mức độ (Mức 1-Nhận biết, Mức 2-Kết nối/Thông hiểu, Mức 3-Vận dụng). BẮT BUỘC số câu VDC (Mức 4) phải bằng 0."
+                : "Áp dụng Thông tư 22/2021/TT-BGDĐT: Phân bổ 4 mức độ (Nhận biết, Thông hiểu, Vận dụng, Vận dụng cao).";
+            
+            if (cautruc.includes("2025")) rule += " Ưu tiên phân bổ thêm câu hỏi cho phần Trắc nghiệm Đúng/Sai và Trả lời ngắn.";
+
+            const prompt = `Phân tích phạm vi kiến thức sau của môn ${mon}, ${lop}. Lập ma trận đề kiểm tra gồm 4-6 chủ đề chính. \nQuy định: ${rule} \nPhân bổ tổng số câu hỏi khoảng 15-40 câu. \nNội dung phạm vi: ${textScope}`;
+
+            try {
+                const matrix = await callGemini(prompt, schema);
+                window.projectState.matrix = matrix;
+                renderMatrix();
+                hideLoading();
+                return true;
+            } catch(e) {
+                hideLoading();
+                window.showToast("Lỗi khi gọi AI tạo ma trận. Thử lại sau.", true);
+                return false;
+            }
+        };
+
+        // STEP 2 -> 3: Specs
+        window.generateSpecsAI = async () => {
+            syncMatrixState();
+            if(window.projectState.matrix.length === 0) { window.showToast("Ma trận trống!", true); return false; }
+
+            showLoading("Lập bản đặc tả", "AI đang đối chiếu yêu cầu cần đạt...");
+            const schema = {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        "topicId": { type: "INTEGER" },
+                        "level": { type: "STRING" },
+                        "desc": { type: "STRING", description: "Động từ hành động + Yêu cầu cần đạt chi tiết theo CT GDPT 2018" },
+                        "count": { type: "INTEGER" }
+                    },
+                    required: ["topicId", "level", "desc", "count"]
+                }
+            };
+
+            const matrixJson = JSON.stringify(window.projectState.matrix);
+            const prompt = `Dựa vào ma trận đề: ${matrixJson}. Hãy lập bản đặc tả theo chuẩn CT GDPT 2018. Chi tiết hóa thành các 'Yêu cầu cần đạt' cụ thể (bắt đầu bằng động từ: Nhận biết được, Tính được, Giải thích được...). Số lượng yêu cầu cần đạt phải khớp với số câu trong ma trận.`;
+
+            try {
+                const specs = await callGemini(prompt, schema);
+                specs.forEach(s => {
+                    const t = window.projectState.matrix.find(m => m.id === s.topicId);
+                    s.topic = t ? t.topic : 'Chủ đề ' + s.topicId;
+                });
+                window.projectState.specs = specs;
+                renderSpecs();
+                hideLoading();
+                return true;
+            } catch(e) {
+                hideLoading();
+                window.showToast("Lỗi khi tạo bản đặc tả.", true);
+                return false;
+            }
+        };
+
+        // STEP 3 -> 4: Questions
+        window.generateQuestionsAI = async () => {
+            syncSpecState();
+            
+            // Validation QA check: Ensure specs total matches matrix total before proceeding
+            let totalSpecQuestions = window.projectState.specs.reduce((acc, curr) => acc + curr.count, 0);
+            let totalMatrixQuestions = parseInt(document.getElementById('tot-all').innerText) || 0;
+            if(totalSpecQuestions === 0) { window.showToast("Bản đặc tả trống hoặc số câu bằng 0!", true); return false; }
+
+            showLoading("Biên soạn Đề thi gốc", "AI đang sáng tác câu hỏi đảm bảo tính chính xác và không lặp lại...");
+            
+            const schema = {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        "id": { type: "INTEGER" },
+                        "level": { type: "STRING" },
+                        "type": { type: "STRING", description: "Một trong các loại: MCQ (Nhiều lựa chọn), TF (Đúng/Sai), SHORT (Trả lời ngắn/Tự luận)" },
+                        "content": { type: "STRING", description: "Nội dung câu hỏi/Ngữ liệu. Dùng định dạng rõ ràng, LaTeX cho Toán/Lý/Hóa." },
+                        "mcqOptions": { type: "ARRAY", items: { type: "STRING" }, description: "Chỉ dùng cho MCQ: Mảng 4 chuỗi A,B,C,D" },
+                        "mcqCorrect": { type: "INTEGER", description: "Index đáp án đúng của MCQ (0-3)" },
+                        "tfStatements": { type: "ARRAY", items: { type: "STRING" }, description: "Chỉ dùng cho TF: Mảng 4 phát biểu a,b,c,d để xét Đúng/Sai" },
+                        "tfCorrect": { type: "ARRAY", items: { type: "BOOLEAN" }, description: "Chỉ dùng cho TF: Mảng 4 boolean tương ứng phát biểu" },
+                        "shortAnswer": { type: "STRING", description: "Chỉ dùng cho SHORT: Câu trả lời ngắn hoặc hướng dẫn chấm tự luận" }
+                    },
+                    required: ["id", "level", "type", "content"]
+                }
+            };
+
+            const specJson = JSON.stringify(window.projectState.specs);
+            const mon = document.getElementById('p-monhoc').value.toLowerCase();
+            const lop = document.getElementById('p-khoilop').value;
+            const cautruc = document.getElementById('p-cautruc').value;
+            
+            let rules = `Soạn câu hỏi cho môn ${mon} ${lop} TUYỆT ĐỐI BÁM SÁT ĐẶC TẢ SAU: ${specJson}. \nTổng số câu sinh ra PHẢI ĐÚNG BẰNG ${totalSpecQuestions} câu. \n`;
+            
+            // Xử lý đặc thù môn học
+            if (mon.includes("toán") || mon.includes("lý") || mon.includes("hóa")) {
+                rules += "Với các môn Khoa học tự nhiên, đảm bảo công thức Toán học chính xác, không dùng ký hiệu lạ, trình bày text thuần túy rõ ràng để vào Word không bị lỗi. ";
+            } else if (mon.includes("văn")) {
+                rules += "Với Ngữ Văn, cần cung cấp ĐẦY ĐỦ ngữ liệu (đoạn thơ/văn) trích dẫn rõ nguồn trước khi đặt câu hỏi. Hướng dẫn chấm tự luận cần có barem điểm từng ý. ";
+            } else if (mon.includes("anh")) {
+                rules += "Với Tiếng Anh, đảm bảo câu hỏi kiểm tra ngữ pháp/từ vựng phù hợp cấp độ, nếu là bài đọc hiểu phải cung cấp đoạn Reading passage ở câu đầu tiên của cụm. ";
+            }
+
+            if (cautruc.includes("2025")) {
+                rules += "Sử dụng ĐA DẠNG loại câu: 'MCQ' (Trắc nghiệm 4 lựa chọn), 'TF' (Câu hỏi dạng Đúng/Sai gồm 1 ngữ liệu chung và 4 ý a,b,c,d), và 'SHORT' (Trả lời ngắn).";
+            } else if (cautruc.includes("Tự luận")) {
+                rules += "Sử dụng kết hợp 'MCQ' cho mức độ Nhận biết/Thông hiểu và 'SHORT' (Tự luận) cho mức Vận dụng/VDC.";
+            } else {
+                rules += "Chỉ sử dụng loại câu 'MCQ' (Trắc nghiệm 100%).";
+            }
+
+            try {
+                const qList = await callGemini(rules, schema, "Bạn là Giáo viên Cốt cán, ra đề thi chuyên nghiệp, không bao giờ sai kiến thức cốt lõi. Công thức Toán học luôn chuẩn xác.");
+                qList.forEach((q, idx) => {
+                    q._id = 'q_' + Date.now() + '_' + idx;
+                    if(!q.mcqOptions) q.mcqOptions = [];
+                    if(!q.tfStatements) q.tfStatements = [];
+                    if(!q.tfCorrect) q.tfCorrect = [];
+                });
+                window.projectState.questions = qList;
+                renderQuestions();
+                hideLoading();
+                return true;
+            } catch(e) {
+                hideLoading();
+                window.showToast("Lỗi khi tạo câu hỏi. Hãy thử lại.", true);
+                return false;
+            }
+        };
+
+        // Regenerate Single Question
+        window.regenerateSingleQuestion = async (btn, qId) => {
+            const qIndex = window.projectState.questions.findIndex(q => q._id === qId);
+            if (qIndex === -1) return;
+            const q = window.projectState.questions[qIndex];
+            
+            const icon = btn.querySelector('i');
+            icon.classList.add('fa-spin');
+            btn.disabled = true;
+
+            const schema = {
+                type: "OBJECT",
+                properties: {
+                    "type": { type: "STRING" },
+                    "content": { type: "STRING" },
+                    "mcqOptions": { type: "ARRAY", items: { type: "STRING" } },
+                    "mcqCorrect": { type: "INTEGER" },
+                    "tfStatements": { type: "ARRAY", items: { type: "STRING" } },
+                    "tfCorrect": { type: "ARRAY", items: { type: "BOOLEAN" } },
+                    "shortAnswer": { type: "STRING" }
+                }
+            };
+            const mon = document.getElementById('p-monhoc').value;
+            const prompt = `Viết lại 1 câu hỏi môn ${mon} mức độ ${q.level} loại ${q.type}. Nội dung TƯƠNG ĐƯƠNG câu này nhưng thay đổi số liệu, ngữ liệu hoặc góc hỏi: "${q.content}".`;
+
+            try {
+                const newQ = await callGemini(prompt, schema);
+                window.projectState.questions[qIndex] = { ...q, ...newQ };
+                if(!window.projectState.questions[qIndex].mcqOptions) window.projectState.questions[qIndex].mcqOptions = [];
+                if(!window.projectState.questions[qIndex].tfStatements) window.projectState.questions[qIndex].tfStatements = [];
+                renderQuestions();
+                window.showToast("Đã thay đổi câu hỏi!");
+            } catch(e) {
+                window.showToast("Lỗi khi đổi câu.", true);
+                icon.classList.remove('fa-spin');
+                btn.disabled = false;
+            }
+        };
+
+        // STEP 4 -> 5: Mix Exams
+        window.processMixExams = () => {
+            syncQuestionsState();
+            const count = parseInt(document.getElementById('mix-count').value) || 1;
+            const mixQ = document.getElementById('mix-q').checked;
+            const mixOpt = document.getElementById('mix-opt').checked;
+            
+            const exams = [];
+            for (let i = 0; i < count; i++) {
+                let code = (i + 1).toString().padStart(3, '0');
+                let qList = JSON.parse(JSON.stringify(window.projectState.questions)); 
+                
+                if (mixQ) {
+                    // Trộn thứ tự câu hỏi trong đề
+                    for (let j = qList.length - 1; j > 0; j--) {
+                        const k = Math.floor(Math.random() * (j + 1));
+                        [qList[j], qList[k]] = [qList[k], qList[j]];
+                    }
+                }
+                
+                if (mixOpt) {
+                    qList.forEach(q => {
+                        if(q.type === 'MCQ' && q.mcqOptions.length > 0) {
+                            let opts = q.mcqOptions.map((text, oId) => ({ text: text.replace(/^[A-D]\.\s*/, ''), isCorrect: oId === q.mcqCorrect }));
+                            for (let j = opts.length - 1; j > 0; j--) {
+                                const k = Math.floor(Math.random() * (j + 1));
+                                [opts[j], opts[k]] = [opts[k], opts[j]];
+                            }
+                            const prefixes = ['A. ', 'B. ', 'C. ', 'D. '];
+                            q.mcqOptions = opts.map((o, idx) => prefixes[idx] + o.text);
+                            q.mcqCorrect = opts.findIndex(o => o.isCorrect);
+                        } else if (q.type === 'TF' && q.tfStatements.length > 0) {
+                            let stats = q.tfStatements.map((text, sId) => ({ text, isCorrect: q.tfCorrect[sId] }));
+                            for (let j = stats.length - 1; j > 0; j--) {
+                                const k = Math.floor(Math.random() * (j + 1));
+                                [stats[j], stats[k]] = [stats[k], stats[j]];
+                            }
+                            q.tfStatements = stats.map(s => s.text);
+                            q.tfCorrect = stats.map(s => s.isCorrect);
+                        }
+                    });
+                }
+                exams.push({ code: code, questions: qList });
+            }
+            window.projectState.mixedExams = exams;
+            return true;
+        };
+
+        // --- RENDER FUNCTIONS ---
+        
+        window.renderStepper = () => {
+            const container = document.getElementById('stepper-container');
+            let html = '';
+            stepsInfo.forEach((step, index) => {
+                const isPast = step.id < currentStep;
+                const isActive = step.id === currentStep;
+                const colorClass = isPast || isActive ? 'text-primary-600' : 'text-slate-400';
+                const bgClass = isPast ? 'bg-primary-600 text-white' : isActive ? 'bg-primary-50 border-2 border-primary-600 text-primary-600' : 'bg-slate-100 text-slate-400';
+                
+                html += `
+                    <div class="flex items-center ${index !== 0 ? 'flex-1' : ''}">
+                        ${index !== 0 ? `<div class="h-0.5 flex-1 mx-1 sm:mx-2 ${isPast ? 'bg-primary-600' : 'bg-slate-200'} transition-colors duration-300"></div>` : ''}
+                        <div class="flex flex-col items-center">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm z-10 transition-colors duration-300 ${bgClass}">
+                                ${isPast ? '<i class="fa-solid fa-check text-xs"></i>' : step.id}
+                            </div>
+                            <span class="text-[10px] sm:text-xs font-semibold mt-1 hidden md:block ${colorClass}">${step.title}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        };
+
+        window.updateUI = () => {
+            document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(`step-${currentStep}`).classList.add('active');
+            document.getElementById('main-scroll-area').scrollTop = 0;
+            renderStepper();
+
+            const btnPrev = document.getElementById('btn-prev');
+            const btnNext = document.getElementById('btn-next');
+            const footer = document.getElementById('footer-actions');
+
+            if (currentStep === 1) btnPrev.classList.add('invisible');
+            else btnPrev.classList.remove('invisible');
+
+            if (currentStep === totalSteps) {
+                footer.classList.add('hidden');
+            } else {
+                footer.classList.remove('hidden');
+                document.getElementById('next-btn-text').innerText = stepsInfo[currentStep - 1].actionText;
+            }
+        };
+
+        window.renderMatrix = () => {
+            const tbody = document.getElementById('matrix-body');
+            let html = '';
+            window.projectState.matrix.forEach((row, i) => {
+                const total = row.nb + row.th + row.vd + row.vdc;
+                html += `
+                    <tr class="hover:bg-slate-50 transition" data-id="${row.id}">
+                        <td class="px-6 py-3 border-r border-slate-200"><input type="text" class="w-full bg-transparent outline-none m-topic font-medium" value="${row.topic}"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.nb}" class="matrix-input nb" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.th}" class="matrix-input th" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.vd}" class="matrix-input vd" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.vdc}" class="matrix-input vdc" onchange="recalculateMatrix()"></td>
+                        <td class="px-4 py-3 text-center bg-blue-50/50 font-medium row-total">${total}</td>
+                        <td class="w-10 text-center"><button onclick="this.closest('tr').remove(); recalculateMatrix()" class="text-red-400 hover:text-red-600"><i class="fa-solid fa-trash"></i></button></td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+            recalculateMatrix();
+        };
+
+        window.addMatrixRow = () => {
+            window.projectState.matrix.push({ id: Date.now(), topic: 'Chủ đề mới', nb: 0, th: 0, vd: 0, vdc: 0 });
+            renderMatrix();
+        }
+
+        window.recalculateMatrix = () => {
+            let totNb = 0, totTh = 0, totVd = 0, totVdc = 0;
+            document.querySelectorAll('#matrix-body tr').forEach(row => {
+                const nb = parseInt(row.querySelector('.nb').value) || 0;
+                const th = parseInt(row.querySelector('.th').value) || 0;
+                const vd = parseInt(row.querySelector('.vd').value) || 0;
+                const vdc = parseInt(row.querySelector('.vdc').value) || 0;
+                row.querySelector('.row-total').innerText = nb + th + vd + vdc;
+                totNb += nb; totTh += th; totVd += vd; totVdc += vdc;
+            });
+            document.getElementById('tot-nb').innerText = totNb;
+            document.getElementById('tot-th').innerText = totTh;
+            document.getElementById('tot-vd').innerText = totVd;
+            document.getElementById('tot-vdc').innerText = totVdc;
+            document.getElementById('tot-all').innerText = totNb + totTh + totVd + totVdc;
+        };
+
+        window.syncMatrixState = () => {
+            window.projectState.matrix = [];
+            document.querySelectorAll('#matrix-body tr').forEach(row => {
+                window.projectState.matrix.push({
+                    id: parseInt(row.dataset.id),
+                    topic: row.querySelector('.m-topic').value,
+                    nb: parseInt(row.querySelector('.nb').value) || 0,
+                    th: parseInt(row.querySelector('.th').value) || 0,
+                    vd: parseInt(row.querySelector('.vd').value) || 0,
+                    vdc: parseInt(row.querySelector('.vdc').value) || 0,
+                });
+            });
+        };
+
+        window.renderSpecs = () => {
+            const tbody = document.getElementById('spec-body');
+            let html = '';
+            window.projectState.specs.forEach(s => {
+                let badgeClass = s.level.includes('Nhận biết') ? 'bg-green-100 text-green-700' : 
+                                 s.level.includes('Thông hiểu') ? 'bg-blue-100 text-blue-700' :
+                                 s.level.includes('Vận dụng cao') ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700';
+                html += `
+                    <tr class="hover:bg-slate-50 group spec-row" data-tid="${s.topicId}" data-level="${s.level}">
+                        <td class="px-6 py-3 border-r border-slate-200 align-top">${s.topic}</td>
+                        <td class="px-4 py-3 border-r border-slate-200 align-top text-center">
+                            <span class="inline-block px-2 py-1 text-xs font-medium rounded ${badgeClass}">${s.level}</span>
+                        </td>
+                        <td class="px-6 py-3 border-r border-slate-200">
+                            <div contenteditable="true" class="s-desc outline-none focus:bg-white focus:ring-2 ring-primary-200 rounded p-1 -m-1 transition cursor-text border border-transparent hover:border-slate-200 group-hover:bg-white min-h-[24px]">${s.desc}</div>
+                        </td>
+                        <td class="px-4 py-3 text-center align-top font-medium"><input type="number" class="s-count w-12 text-center bg-transparent" value="${s.count}"></td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        };
+
+        window.syncSpecState = () => {
+            const rows = document.querySelectorAll('#spec-body tr');
+            window.projectState.specs = [];
+            rows.forEach(r => {
+                window.projectState.specs.push({
+                    topicId: parseInt(r.dataset.tid),
+                    topic: r.cells[0].innerText,
+                    level: r.dataset.level,
+                    desc: r.querySelector('.s-desc').innerText,
+                    count: parseInt(r.querySelector('.s-count').value) || 0
+                });
+            });
+        };
+
+        window.renderQuestions = () => {
+            const container = document.getElementById('questions-container');
+            const navList = document.getElementById('q-nav-list');
+            let containerHtml = ''; let navHtml = '';
+
+            document.getElementById('q-count-badge').innerText = window.projectState.questions.length;
+
+            window.projectState.questions.forEach((q, index) => {
+                const num = index + 1;
+                let typeLabel = q.type === 'MCQ' ? 'Trắc nghiệm' : q.type === 'TF' ? 'Đúng/Sai' : 'Tự luận/Ngắn';
+                navHtml += `<a href="#${q._id}" class="block p-2 text-sm rounded hover:bg-slate-100 text-slate-600 truncate transition">Câu ${num}: <span class="text-xs text-slate-400">${q.level}</span></a>`;
+
+                let bodyHtml = '';
+                if (q.type === 'MCQ') {
+                    let optionsHtml = '';
+                    (q.mcqOptions || []).forEach((opt, optIdx) => {
+                        const isCorrect = q.mcqCorrect === optIdx;
+                        optionsHtml += `
+                            <div class="flex items-start gap-2 p-2 rounded border border-slate-200 hover:bg-slate-50 opt-row ${isCorrect?'bg-green-50/50 border-green-200':''}">
+                                <input type="radio" name="r_${q._id}" value="${optIdx}" ${isCorrect ? 'checked' : ''} class="mt-1 text-green-500 focus:ring-green-400 cursor-pointer">
+                                <div contenteditable="true" class="text-sm text-slate-700 w-full outline-none focus:bg-white p-1 rounded -m-1 opt-text">${opt}</div>
+                            </div>
+                        `;
+                    });
+                    bodyHtml = `<div class="grid grid-cols-1 md:grid-cols-2 gap-3 opts-container mcq-opts">${optionsHtml}</div>`;
+                } else if (q.type === 'TF') {
+                    let stHtml = '';
+                    const labels = ['a', 'b', 'c', 'd'];
+                    (q.tfStatements || []).forEach((st, stIdx) => {
+                        const isTrue = q.tfCorrect[stIdx] === true;
+                        stHtml += `
+                            <div class="flex items-start gap-3 p-2 bg-slate-50 border border-slate-100 rounded tf-row">
+                                <div class="font-semibold text-slate-500 mt-1">${labels[stIdx]}.</div>
+                                <div contenteditable="true" class="text-sm text-slate-700 flex-1 outline-none focus:bg-white p-1 rounded -m-1 tf-text">${st}</div>
+                                <div class="flex gap-3 mt-1 shrink-0 bg-white px-2 py-1 rounded border shadow-sm">
+                                    <label class="flex items-center gap-1 text-sm font-medium cursor-pointer text-green-600"><input type="radio" name="tf_${q._id}_${stIdx}" value="true" ${isTrue ? 'checked':''}> Đúng</label>
+                                    <label class="flex items-center gap-1 text-sm font-medium cursor-pointer text-red-600"><input type="radio" name="tf_${q._id}_${stIdx}" value="false" ${!isTrue ? 'checked':''}> Sai</label>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    bodyHtml = `<div class="space-y-2 tf-container">${stHtml}</div>`;
+                } else {
+                    bodyHtml = `
+                        <div class="mt-3">
+                            <label class="block text-xs font-semibold text-slate-500 uppercase mb-1"><i class="fa-solid fa-key mr-1"></i>Đáp án / Hướng dẫn chấm</label>
+                            <div contenteditable="true" class="short-text text-sm text-slate-700 bg-green-50 border border-green-200 p-3 rounded outline-none focus:bg-white focus:ring-2 ring-green-200 min-h-[3rem]">${q.shortAnswer || ''}</div>
+                        </div>
+                    `;
+                }
+
+                containerHtml += `
+                    <div id="${q._id}" class="q-card bg-white border border-slate-200 rounded-lg shadow-sm group scroll-mt-20" data-type="${q.type}">
+                        <div class="flex justify-between items-center px-4 py-2 border-b bg-slate-50 rounded-t-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="font-bold text-slate-800">Câu ${num}</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded border border-slate-300 text-slate-500 bg-white font-semibold">${typeLabel} - ${q.level}</span>
+                            </div>
+                            <div class="flex gap-1">
+                                <button onclick="regenerateSingleQuestion(this, '${q._id}')" class="px-2 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded border border-transparent hover:border-primary-200 transition" title="Sinh câu hỏi khác">
+                                    <i class="fa-solid fa-rotate mr-1"></i> Sinh lại
+                                </button>
+                                <button onclick="this.closest('.q-card').remove()" class="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition"><i class="fa-solid fa-trash-can"></i></button>
+                            </div>
+                        </div>
+                        <div class="p-4">
+                            <div contenteditable="true" class="q-content text-sm text-slate-800 mb-4 outline-none focus:ring-2 focus:ring-primary-200 p-2 rounded -mx-2 hover:bg-slate-50 transition min-h-[1.5rem]">${q.content}</div>
+                            ${bodyHtml}
+                        </div>
+                    </div>
+                `;
+            });
+            navList.innerHTML = navHtml;
+            container.innerHTML = containerHtml;
+        };
+
+        window.syncQuestionsState = () => {
+            const cards = document.querySelectorAll('.q-card');
+            window.projectState.questions = [];
+            cards.forEach(card => {
+                const id = card.id;
+                const type = card.dataset.type;
+                const content = card.querySelector('.q-content').innerText;
+                const orig = window.projectState.questions.find(q => q._id === id) || { level: 'Cơ bản', topicId: 0 };
+                
+                let mcqOptions = [], mcqCorrect = 0, tfStatements = [], tfCorrect = [], shortAnswer = "";
+
+                if (type === 'MCQ') {
+                    card.querySelectorAll('.opt-row').forEach((row, idx) => {
+                        mcqOptions.push(row.querySelector('.opt-text').innerText);
+                        if (row.querySelector('input[type="radio"]').checked) mcqCorrect = idx;
+                    });
+                } else if (type === 'TF') {
+                    card.querySelectorAll('.tf-row').forEach(row => {
+                        tfStatements.push(row.querySelector('.tf-text').innerText);
+                        const trueRadio = row.querySelector('input[value="true"]');
+                        tfCorrect.push(trueRadio && trueRadio.checked);
+                    });
+                } else {
+                    const shortEl = card.querySelector('.short-text');
+                    shortAnswer = shortEl ? shortEl.innerText : "";
+                }
+
+                window.projectState.questions.push({ 
+                    _id: id, level: orig.level, topicId: orig.topicId, type, content, 
+                    mcqOptions, mcqCorrect, tfStatements, tfCorrect, shortAnswer 
+                });
+            });
+        };
+
+        // --- EXPORT TO DOCX (HTML BLOB) ---
+        window.exportDocx = (type) => {
+            const mon = document.getElementById('p-monhoc').value;
+            const lop = document.getElementById('p-khoilop').value;
+            const title = `Hồ_Sơ_Kiểm_Tra_${mon}_${lop}`.replace(/\s+/g, "_");
+            
+            // Cấu hình CSS cho chuẩn in ấn Word A4, Font Times New Roman 13pt
+            let htmlContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head><meta charset='utf-8'><title>${title}</title>
+            <style>
+                @page { size: 21cm 29.7cm; margin: 2cm; mso-page-orientation: portrait; }
+                body { font-family: 'Times New Roman', serif; font-size: 13pt; line-height: 1.3; }
+                h1 { font-size: 16pt; text-align: center; text-transform: uppercase; font-weight: bold; margin-bottom: 20pt;}
+                h2 { font-size: 14pt; font-weight: bold; margin-bottom: 10pt; margin-top: 15pt;}
+                .text-center { text-align: center; }
+                .q-title { font-weight: bold; }
+                .options { margin-left: 15pt; margin-top: 5pt; margin-bottom: 10pt;}
+                .tf-statement { margin-left: 15pt; margin-bottom: 3pt; }
+                table { border-collapse: collapse; width: 100%; margin-top: 10pt; margin-bottom: 15pt; table-layout: fixed; }
+                table, th, td { border: 1pt solid black; }
+                th, td { padding: 6pt; vertical-align: top; word-wrap: break-word; }
+                th { font-weight: bold; text-align: center; background-color: #f2f2f2; }
+                .section-title { font-weight: bold; font-size: 13pt; margin-top: 15pt; text-decoration: underline; text-transform: uppercase;}
+                .page-break { mso-special-character: line-break; page-break-before: always; }
+            </style>
+            </head><body>`;
+            
+            // Hàm sinh HTML Ma trận & Đặc tả
+            const generateMatrixSpecsHtml = () => {
+                let out = `<h1>HỒ SƠ CHUYÊN MÔN: MA TRẬN VÀ ĐẶC TẢ</h1>`;
+                out += `<h2>1. MA TRẬN ĐỀ KIỂM TRA MÔN ${mon.toUpperCase()} ${lop.toUpperCase()}</h2>`;
+                out += `<table><tr><th width="30%">Chủ đề / Mạch kiến thức</th><th width="14%">Nhận biết</th><th width="14%">Thông hiểu</th><th width="14%">Vận dụng</th><th width="14%">Vận dụng cao</th><th width="14%">Tổng số câu</th></tr>`;
+                window.projectState.matrix.forEach(row => {
+                    const total = row.nb + row.th + row.vd + row.vdc;
+                    out += `<tr><td>${row.topic}</td><td class="text-center">${row.nb}</td><td class="text-center">${row.th}</td><td class="text-center">${row.vd}</td><td class="text-center">${row.vdc}</td><td class="text-center"><b>${total}</b></td></tr>`;
+                });
+                out += `</table>`;
+
+                out += `<h2>2. BẢN ĐẶC TẢ CHI TIẾT</h2>`;
+                out += `<table><tr><th width="20%">Chủ đề</th><th width="15%">Mức độ</th><th width="50%">Yêu cầu cần đạt / Tiêu chí đánh giá</th><th width="15%">Số câu</th></tr>`;
+                window.projectState.specs.forEach(s => {
+                    out += `<tr><td>${s.topic}</td><td class="text-center">${s.level}</td><td>${s.desc}</td><td class="text-center"><b>${s.count}</b></td></tr>`;
+                });
+                out += `</table>`;
+                return out;
+            };
+
+            // Hàm sinh Đề
+            const generateExamsHtml = () => {
+                let out = "";
+                window.projectState.mixedExams.forEach(exam => {
+                    out += `<h1>BÀI KIỂM TRA MÔN ${mon.toUpperCase()} ${lop.toUpperCase()}</h1>`;
+                    out += `<p class="text-center" style="font-weight: bold;">MÃ ĐỀ: ${exam.code}</p>`;
+                    out += `<p class="text-center">Thời gian làm bài: ${document.getElementById('p-thoigian').value} phút (Không kể thời gian phát đề)</p><hr/>`;
+                    
+                    const mcqs = exam.questions.filter(q => q.type === 'MCQ');
+                    const tfs = exam.questions.filter(q => q.type === 'TF');
+                    const shorts = exam.questions.filter(q => q.type !== 'MCQ' && q.type !== 'TF');
+
+                    let qCounter = 1;
+                    if (mcqs.length > 0) {
+                        out += `<p class="section-title">PHẦN I. TRẮC NGHIỆM NHIỀU LỰA CHỌN</p>`;
+                        mcqs.forEach(q => {
+                            out += `<p><span class="q-title">Câu ${qCounter++}:</span> ${q.content}</p>`;
+                            out += `<div class="options">`;
+                            q.mcqOptions.forEach(opt => out += `<div>${opt}</div>`);
+                            out += `</div>`;
+                        });
+                    }
+
+                    if (tfs.length > 0) {
+                        out += `<p class="section-title">PHẦN II. TRẮC NGHIỆM ĐÚNG/SAI</p>`;
+                        out += `<p><i>(Trong mỗi ý a), b), c), d) ở mỗi câu, học sinh chọn đúng hoặc sai)</i></p>`;
+                        tfs.forEach(q => {
+                            out += `<p><span class="q-title">Câu ${qCounter++}:</span> ${q.content}</p>`;
+                            out += `<div class="options">`;
+                            const labels = ['a', 'b', 'c', 'd'];
+                            q.tfStatements.forEach((st, i) => out += `<div class="tf-statement"><b>${labels[i]}.</b> ${st}</div>`);
+                            out += `</div>`;
+                        });
+                    }
+
+                    if (shorts.length > 0) {
+                        out += `<p class="section-title">PHẦN III. TRẢ LỜI NGẮN / TỰ LUẬN</p>`;
+                        shorts.forEach(q => {
+                            out += `<p><span class="q-title">Câu ${qCounter++}:</span> ${q.content}</p><br/>`;
+                        });
+                    }
+                    out += `<div class="text-center" style="margin-top: 30pt;"><b>------- HẾT -------</b></div>`;
+                    out += `<div class="page-break"></div>`;
+                });
+                return out;
+            };
+
+            // Hàm sinh Đáp án
+            const generateAnswersHtml = () => {
+                let out = `<h1>HƯỚNG DẪN CHẤM VÀ ĐÁP ÁN</h1>`;
+                window.projectState.mixedExams.forEach(exam => {
+                    out += `<h2>MÃ ĐỀ: ${exam.code}</h2>`;
+                    
+                    const mcqs = exam.questions.filter(q => q.type === 'MCQ');
+                    const tfs = exam.questions.filter(q => q.type === 'TF');
+                    const shorts = exam.questions.filter(q => q.type !== 'MCQ' && q.type !== 'TF');
+
+                    let qCounter = 1;
+                    if (mcqs.length > 0) {
+                        out += `<p class="section-title">PHẦN I. ĐÁP ÁN TRẮC NGHIỆM LỰA CHỌN</p><table><tr>`;
+                        const letters = ['A', 'B', 'C', 'D'];
+                        mcqs.forEach(q => { out += `<th>C.${qCounter++}</th>`; });
+                        out += `</tr><tr>`;
+                        mcqs.forEach(q => out += `<td class="text-center"><b>${letters[q.mcqCorrect]}</b></td>`);
+                        out += `</tr></table>`;
+                    }
+
+                    if (tfs.length > 0) {
+                        out += `<p class="section-title">PHẦN II. ĐÁP ÁN ĐÚNG/SAI</p><table><tr><th width="15%">Câu</th><th width="21%">Ý a</th><th width="21%">Ý b</th><th width="21%">Ý c</th><th width="21%">Ý d</th></tr>`;
+                        tfs.forEach(q => {
+                            out += `<tr><td class="text-center"><b>Câu ${qCounter++}</b></td>`;
+                            q.tfCorrect.forEach(isTrue => out += `<td class="text-center">${isTrue ? 'Đúng' : 'Sai'}</td>`);
+                            out += `</tr>`;
+                        });
+                        out += `</table>`;
+                    }
+
+                    if (shorts.length > 0) {
+                        out += `<p class="section-title">PHẦN III. HƯỚNG DẪN CHẤM TRẢ LỜI NGẮN / TỰ LUẬN</p>`;
+                        shorts.forEach(q => {
+                            out += `<p><span class="q-title">Câu ${qCounter++}:</span> ${q.content}</p>`;
+                            out += `<p><b>Hướng dẫn chấm:</b><br/> ${q.shortAnswer.replace(/\n/g, '<br/>')}</p><hr/>`;
+                        });
+                    }
+                    out += `<div class="page-break"></div>`;
+                });
+                return out;
+            };
+
+            // Lắp ráp File Word dựa vào Option
+            if (type === 'matrix_specs') {
+                htmlContent += generateMatrixSpecsHtml();
+            } else if (type === 'exams') {
+                htmlContent += generateExamsHtml();
+            } else if (type === 'answers') {
+                htmlContent += generateAnswersHtml();
+            } else if (type === 'all') {
+                htmlContent += generateMatrixSpecsHtml();
+                htmlContent += `<div class="page-break"></div>`;
+                htmlContent += generateExamsHtml();
+                htmlContent += generateAnswersHtml();
+            }
+
+            htmlContent += `</body></html>`;
+            
+            // Xử lý Tải File
+            const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${title}_${type.toUpperCase()}.doc`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            window.showToast(`Tải xuống Hồ sơ ${type} thành công!`);
+        };
+
+        // --- CLOUD FIREBASE ---
+        window.saveProjectToCloud = async () => {
+            if (!auth || !auth.currentUser) { window.showToast("Lỗi kết nối máy chủ dữ liệu.", true); return; }
+            syncQuestionsState();
+            
+            // Gather params
+            window.projectState.params = {
+                mon: document.getElementById('p-monhoc').value,
+                lop: document.getElementById('p-khoilop').value,
+                ky: document.getElementById('p-kykiemtra').value,
+                time: document.getElementById('p-thoigian').value,
+                updatedAt: serverTimestamp()
+            };
+
+            showLoading("Đang lưu...", "Đồng bộ lên Cloud");
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'projects', window.projectState.id);
+                // Exclude extracted text to save space
+                const { extractedText, mixedExams, ...dataToSave } = window.projectState; 
+                await setDoc(docRef, dataToSave);
+                hideLoading();
+                window.showToast("Đã lưu dự án lên Cloud!");
+            } catch(e) {
+                console.error(e);
+                hideLoading();
+                window.showToast("Lỗi khi lưu.", true);
+            }
+        };
+
+        window.openBankModal = async () => {
+            if (!auth || !auth.currentUser) { window.showToast("Chưa đăng nhập.", true); return; }
+            document.getElementById('bank-modal').classList.add('active');
+            
+            const listDiv = document.getElementById('bank-list');
+            try {
+                const q = query(collection(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'projects')); // Note: Can't use orderBy without index per rules, fetch all and sort in memory
+                const querySnapshot = await getDocs(q);
+                let projects = [];
+                querySnapshot.forEach((doc) => projects.push({ id: doc.id, ...doc.data() }));
+                
+                // Sort by ID (timestamp based) desc
+                projects.sort((a,b) => b.id.localeCompare(a.id));
+
+                if (projects.length === 0) {
+                    listDiv.innerHTML = `<div class="text-center text-slate-500 py-10">Chưa có đề nào được lưu.</div>`;
+                    return;
+                }
+
+                let html = '<div class="space-y-3">';
+                projects.forEach(p => {
+                    const date = new Date(parseInt(p.id.split('_')[1])).toLocaleDateString('vi-VN');
+                    html += `
+                        <div class="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center hover:border-primary-300 transition cursor-pointer" onclick="loadProject('${p.id}')">
+                            <div>
+                                <h4 class="font-bold text-slate-800">Đề ${p.params?.mon || 'Không tên'} - ${p.params?.lop || ''}</h4>
+                                <p class="text-xs text-slate-500">${p.params?.ky || ''} • Lưu ngày: ${date} • ${p.questions?.length || 0} câu</p>
+                            </div>
+                            <button class="text-primary-600 bg-primary-50 px-3 py-1.5 rounded text-sm font-medium hover:bg-primary-100">Mở lại</button>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                listDiv.innerHTML = html;
+            } catch(e) {
+                listDiv.innerHTML = `<div class="text-center text-red-500 py-10">Lỗi tải dữ liệu.</div>`;
+            }
+        };
+
+        window.closeBankModal = () => document.getElementById('bank-modal').classList.remove('active');
+
+        window.loadProject = async (pid) => {
+            showLoading("Đang tải đề...", "Lấy dữ liệu từ Cloud");
+            try {
+                const docSnap = await getDoc(doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'projects', pid));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    window.projectState = { ...window.projectState, ...data };
+                    
+                    // Repopulate UI
+                    if(data.params) {
+                        document.getElementById('p-monhoc').value = data.params.mon || '';
+                        document.getElementById('p-khoilop').value = data.params.lop || '';
+                        document.getElementById('p-kykiemtra').value = data.params.ky || '';
+                    }
+                    
+                    closeBankModal();
+                    hideLoading();
+                    
+                    // Jump to Step 4 (Edit Questions)
+                    currentStep = 4;
+                    updateUI();
+                    renderQuestions();
+                    window.showToast("Tải đề thành công!");
+                }
+            } catch(e) {
+                hideLoading();
+                window.showToast("Lỗi khi mở đề.", true);
+            }
+        };
+
+        // --- STEP NAVIGATION LOGIC ---
+        window.nextStep = async () => {
+            if (currentStep === 1) {
+                const success = await generateMatrixAI();
+                if(!success) return;
+            } else if (currentStep === 2) {
+                const success = await generateSpecsAI();
+                if(!success) return;
+            } else if (currentStep === 3) {
+                const success = await generateQuestionsAI();
+                if(!success) return;
+            } else if (currentStep === 4) {
+                processMixExams();
+            }
+            
+            if (currentStep < totalSteps) {
+                currentStep++;
+                updateUI();
+            }
+        };
+
+        window.prevStep = () => {
+            if (currentStep > 1) { currentStep--; updateUI(); }
+        };
+
+        window.resetApp = () => {
+            if(confirm("Tạo đề mới? Các dữ liệu chưa lưu sẽ bị mất.")) {
+                window.projectState = { id: 'proj_' + Date.now(), params: {}, extractedText: "", matrix: [], specs: [], questions: [], mixedExams: [] };
+                currentStep = 1;
+                document.getElementById('p-phamvi').value = "";
+                document.getElementById('file-name-display').innerText = "Click hoặc Kéo thả Ma trận mẫu / SGK";
+                updateUI();
+            }
+        };
+
+        // Init Setup
+        document.addEventListener('DOMContentLoaded', () => { updateUI(); });
+    </script>
+</body>
+</html>
