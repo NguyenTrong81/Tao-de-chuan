@@ -41,16 +41,16 @@
         .matrix-input:hover { border-color: #cbd5e1; background: white; }
         .matrix-input:focus { border-color: #3b82f6; background: white; outline: none; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
         
-        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 50; }
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 50; max-width: 420px; }
         .toast { transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .toast.show { transform: translateX(0); }
         
         .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Modal Overlay */
-        #bank-modal { display: none; }
-        #bank-modal.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        /* Modal Overlays */
+        #bank-modal, #ai-config-modal { display: none; }
+        #bank-modal.active, #ai-config-modal.active { display: flex; animation: fadeIn 0.2s ease-out; }
     </style>
 </head>
 <body class="text-slate-800 antialiased h-screen flex flex-col overflow-hidden">
@@ -64,9 +64,14 @@
                 </div>
                 <span class="font-bold text-xl tracking-tight text-slate-800">EduAI<span class="text-primary-600">Test</span></span>
             </div>
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-3 sm:gap-4">
+                <button onclick="openAIConfigModal()" class="text-slate-600 hover:text-primary-600 font-medium text-xs sm:text-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-primary-200 bg-slate-50 transition" title="Cấu hình Supabase Edge Function & Nhật ký kỹ thuật">
+                    <span id="ai-status-dot" class="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <i class="fa-solid fa-server text-xs"></i>
+                    <span class="hidden sm:inline">Kết nối AI</span>
+                </button>
                 <button onclick="openBankModal()" class="text-slate-600 hover:text-primary-600 font-medium text-sm flex items-center gap-2 transition">
-                    <i class="fa-solid fa-layer-group"></i> Ngân hàng của tôi
+                    <i class="fa-solid fa-layer-group"></i> <span class="hidden sm:inline">Ngân hàng của tôi</span>
                 </button>
                 <div class="h-8 w-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center overflow-hidden cursor-pointer" id="user-avatar" title="Đang kết nối...">
                     <i class="fa-solid fa-user text-slate-400"></i>
@@ -95,6 +100,23 @@
         <div class="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6 lg:p-8 relative" id="main-scroll-area">
             <div class="max-w-6xl mx-auto">
                 
+                <!-- Alert Banner for AI Errors -->
+                <div id="ai-error-banner" class="hidden mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 shadow-sm">
+                    <div class="flex items-start gap-3">
+                        <i class="fa-solid fa-triangle-exclamation text-red-500 text-lg mt-0.5"></i>
+                        <div class="flex-1">
+                            <h4 class="font-semibold text-sm" id="ai-error-banner-title">Không thể xử lý yêu cầu AI</h4>
+                            <p class="text-xs text-red-700 mt-1 leading-relaxed" id="ai-error-banner-msg"></p>
+                            <div class="mt-2.5 flex flex-wrap gap-2">
+                                <button onclick="openAIConfigModal()" class="text-xs font-medium bg-white border border-red-200 text-red-700 hover:bg-red-100 px-3 py-1 rounded-md transition">
+                                    <i class="fa-solid fa-wrench mr-1"></i> Kiểm tra cấu hình & Xem log kỹ thuật
+                                </button>
+                                <button onclick="hideErrorBanner()" class="text-xs text-red-600 hover:underline px-2 py-1">Đóng</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- STEP 1: THIẾT LẬP -->
                 <div id="step-1" class="step-content active">
                     <div class="mb-6">
@@ -394,11 +416,149 @@
         </div>
     </div>
 
+    <!-- AI Configuration & Diagnostic Modal (Supabase Edge Function Proxy + Safe Technical Logs) -->
+    <div id="ai-config-modal" class="fixed inset-0 bg-slate-900/50 z-50 items-center justify-center backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[88vh]">
+            <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-primary-600 text-lg"></i>
+                    <h3 class="text-lg font-bold text-slate-800">Cấu hình Kết nối AI & Chẩn đoán Kỹ thuật</h3>
+                </div>
+                <button onclick="closeAIConfigModal()" class="text-slate-400 hover:text-slate-700 p-1"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+
+            <div class="p-5 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
+                <!-- Connection Settings -->
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                        <div>
+                            <h4 class="font-semibold text-slate-800 text-sm">1. Trung gian bảo mật Supabase Edge Function (Khuyên dùng)</h4>
+                            <p class="text-xs text-slate-500">Tuyệt đối không lưu API Key trong mã nguồn công khai. Mọi yêu cầu AI sẽ đi qua Supabase Edge Function.</p>
+                        </div>
+                        <span class="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 shrink-0" id="proxy-mode-badge">Chế độ bảo mật</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="md:col-span-2">
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">URL Supabase Edge Function (`gemini-proxy`)</label>
+                            <input type="url" id="cfg-edge-url" placeholder="https://<project-ref>.supabase.co/functions/v1/gemini-proxy" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white">
+                            <p class="text-[11px] text-slate-500 mt-1">Hệ thống tự động gọi tới URL này để xử lý Gemini API phía máy chủ.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Model Gemini ưu tiên</label>
+                            <select id="cfg-gemini-model" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white">
+                                <option value="gemini-2.5-flash">gemini-2.5-flash (Chuẩn ổn định)</option>
+                                <option value="gemini-2.0-flash">gemini-2.0-flash (Dự phòng nhanh)</option>
+                                <option value="gemini-3-flash-preview">gemini-3-flash-preview (Preview)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Supabase Anon Key (Tùy chọn - nếu bật Verify JWT)</label>
+                            <input type="password" id="cfg-supabase-anon" autocomplete="off" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Thời gian chờ tối đa (Timeout - giây)</label>
+                            <input type="number" id="cfg-timeout-sec" min="15" max="120" value="45" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <div class="flex gap-2">
+                            <button onclick="saveAIConfig()" class="bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+                                <i class="fa-solid fa-floppy-disk mr-1"></i> Lưu cấu hình
+                            </button>
+                            <button onclick="testAIConnection()" id="btn-test-ai" class="bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold px-4 py-2 rounded-lg transition">
+                                <i class="fa-solid fa-bolt text-amber-500 mr-1"></i> Kiểm tra lập ma trận thử
+                            </button>
+                        </div>
+                        <button onclick="toggleEdgeCodeGuide()" class="text-xs text-primary-600 hover:underline font-medium">
+                            <i class="fa-solid fa-code mr-1"></i> Xem mã nguồn Supabase Edge Function (`gemini-proxy`)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Collapsible Supabase Edge Function Code -->
+                <div id="edge-code-guide" class="hidden bg-slate-900 text-slate-100 rounded-xl p-4 text-xs space-y-3">
+                    <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+                        <span class="font-semibold text-blue-300"><i class="fa-solid fa-terminal mr-1"></i> File: supabase/functions/gemini-proxy/index.ts</span>
+                        <button onclick="copyEdgeFunctionCode()" class="bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded text-[11px] transition">
+                            <i class="fa-regular fa-copy mr-1"></i> Copy Code
+                        </button>
+                    </div>
+                    <pre id="edge-func-source" class="overflow-x-auto custom-scrollbar text-[11px] leading-relaxed text-emerald-300 font-mono">import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: { code: 500, message: "Server chưa cấu hình GEMINI_API_KEY trong Supabase Secrets." } }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { model = "gemini-2.5-flash", payload } = await req.json();
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+
+    const geminiRes = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await geminiRes.json();
+    return new Response(JSON.stringify(data), {
+      status: geminiRes.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: { code: 500, message: err instanceof Error ? err.message : "Internal Proxy Error" } }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});</pre>
+                    <div class="text-[11px] text-slate-400 border-t border-slate-700 pt-2">
+                        Lệnh triển khai: <code class="text-amber-300">supabase secrets set GEMINI_API_KEY="YOUR_KEY"</code> &rarr; <code class="text-amber-300">supabase functions deploy gemini-proxy --no-verify-jwt</code>
+                    </div>
+                </div>
+
+                <!-- Technical Diagnostic Logs (Strictly Masked / No API Keys) -->
+                <div class="border border-slate-200 rounded-xl overflow-hidden">
+                    <div class="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex justify-between items-center">
+                        <span class="font-semibold text-xs text-slate-700 uppercase tracking-wider">
+                            <i class="fa-solid fa-bug text-slate-500 mr-1.5"></i> Nhật ký kỹ thuật (Đã ẩn toàn bộ thông tin nhạy cảm)
+                        </span>
+                        <button onclick="clearTechnicalLogs()" class="text-xs text-slate-500 hover:text-red-600 transition">
+                            <i class="fa-solid fa-eraser mr-1"></i> Xóa log
+                        </button>
+                    </div>
+                    <div id="tech-log-container" class="p-3 bg-slate-950 text-slate-200 font-mono text-xs max-h-56 overflow-y-auto custom-scrollbar space-y-2">
+                        <div class="text-slate-500 italic">Chưa có bản ghi lỗi hoặc sự kiện gọi AI nào trong phiên này.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div id="toast-container">
         <div id="custom-toast" class="toast bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 mb-4 hidden">
-            <i class="fa-solid fa-circle-check text-green-400" id="toast-icon"></i>
-            <span id="toast-msg" class="text-sm font-medium"></span>
+            <i class="fa-solid fa-circle-check text-green-400 shrink-0" id="toast-icon"></i>
+            <span id="toast-msg" class="text-sm font-medium leading-snug"></span>
         </div>
     </div>
 
@@ -434,8 +594,22 @@
             });
         }
 
-        // --- GLOBAL STATE ---
-        const API_KEY = ""; // Gemini API Key injected by Canvas
+        // --- GLOBAL STATE & SECURE AI PROXY CONFIGURATION ---
+        // Tuyệt đối không lưu cứng API Key trong mã nguồn công khai.
+        // Hệ thống ưu tiên gọi qua Supabase Edge Function trung gian.
+        const DEFAULT_EDGE_FUNCTION_URL = (typeof window.__SUPABASE_FUNCTION_URL__ === 'string' && window.__SUPABASE_FUNCTION_URL__)
+            ? window.__SUPABASE_FUNCTION_URL__
+            : (localStorage.getItem('eduai_edge_function_url') || '/functions/v1/gemini-proxy');
+
+        window.aiRuntimeConfig = {
+            edgeFunctionUrl: DEFAULT_EDGE_FUNCTION_URL,
+            supabaseAnonKey: localStorage.getItem('eduai_supabase_anon_key') || '',
+            preferredModel: localStorage.getItem('eduai_preferred_model') || 'gemini-2.5-flash',
+            timeoutMs: (parseInt(localStorage.getItem('eduai_timeout_sec')) || 45) * 1000
+        };
+
+        window.technicalLogs = [];
+
         window.projectState = {
             id: 'proj_' + Date.now(),
             params: {},
@@ -457,18 +631,93 @@
             { id: 6, title: 'Xuất bản', icon: 'fa-file-export', actionText: '' }
         ];
 
-        // --- UTILS ---
-        window.showToast = (message, isError = false) => {
+        // --- SECURITY & TECHNICAL LOGGING UTILS (NEVER LOG API KEYS) ---
+        function maskSensitiveData(input) {
+            if (!input) return "";
+            let str = typeof input === 'string' ? input : JSON.stringify(input);
+            // Che mọi chuỗi có dạng Google API Key (AIza...), query ?key=..., hoặc Bearer JWT token
+            str = str.replace(/AIza[0-9A-Za-z\-_]{20,}/g, '[REDACTED_API_KEY]');
+            str = str.replace(/([?&]key=)[^&\s"']+/gi, '$1[REDACTED]');
+            str = str.replace(/(Bearer\s+)[0-9A-Za-z\-._~+/]+=*/gi, '$1[REDACTED_TOKEN]');
+            return str;
+        }
+
+        function logTechnicalEvent(level, action, details = {}) {
+            const safeDetails = {};
+            for (const [k, v] of Object.entries(details)) {
+                if (/key|token|secret|authorization/i.test(k)) {
+                    safeDetails[k] = '[REDACTED]';
+                } else {
+                    safeDetails[k] = typeof v === 'string' ? maskSensitiveData(v) : v;
+                }
+            }
+
+            const entry = {
+                timestamp: new Date().toISOString(),
+                level,
+                action,
+                ...safeDetails
+            };
+
+            window.technicalLogs.unshift(entry);
+            if (window.technicalLogs.length > 50) window.technicalLogs.pop();
+
+            const logMethod = level === 'ERROR' ? console.error : level === 'WARN' ? console.warn : console.info;
+            logMethod(`[EduAI][${entry.timestamp}][${level}][${action}]`, safeDetails);
+            renderTechnicalLogs();
+        }
+
+        function renderTechnicalLogs() {
+            const container = document.getElementById('tech-log-container');
+            if (!container) return;
+            if (window.technicalLogs.length === 0) {
+                container.innerHTML = `<div class="text-slate-500 italic">Chưa có bản ghi lỗi hoặc sự kiện gọi AI nào trong phiên này.</div>`;
+                return;
+            }
+
+            container.innerHTML = window.technicalLogs.map(log => {
+                const badgeColor = log.level === 'ERROR' ? 'text-red-400' : log.level === 'WARN' ? 'text-amber-400' : 'text-emerald-400';
+                const timeShort = log.timestamp.split('T')[1]?.replace('Z', '') || log.timestamp;
+                const meta = { ...log };
+                delete meta.timestamp; delete meta.level; delete meta.action;
+                return `<div class="border-b border-slate-800 pb-1.5">
+                    <span class="text-slate-500">[${timeShort}]</span>
+                    <span class="font-bold ${badgeColor}">[${log.level}]</span>
+                    <span class="text-blue-300 font-semibold">${log.action}</span>:
+                    <span class="text-slate-300 break-all">${maskSensitiveData(JSON.stringify(meta))}</span>
+                </div>`;
+            }).join('');
+        }
+
+        window.clearTechnicalLogs = () => {
+            window.technicalLogs = [];
+            renderTechnicalLogs();
+        };
+
+        // --- UI UTILS ---
+        window.showToast = (message, isError = false, duration = 4500) => {
             const toast = document.getElementById('custom-toast');
             document.getElementById('toast-msg').innerText = message;
             const icon = document.getElementById('toast-icon');
-            icon.className = isError ? 'fa-solid fa-circle-exclamation text-red-400' : 'fa-solid fa-circle-check text-green-400';
+            icon.className = isError ? 'fa-solid fa-circle-exclamation text-red-400 shrink-0' : 'fa-solid fa-circle-check text-green-400 shrink-0';
             toast.classList.remove('hidden');
             setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => {
+            if (window._toastTimer) clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
                 toast.classList.remove('show');
                 setTimeout(() => toast.classList.add('hidden'), 300);
-            }, 3000);
+            }, duration);
+        };
+
+        window.showErrorBanner = (title, message) => {
+            const banner = document.getElementById('ai-error-banner');
+            document.getElementById('ai-error-banner-title').innerText = title;
+            document.getElementById('ai-error-banner-msg').innerText = message;
+            banner.classList.remove('hidden');
+        };
+
+        window.hideErrorBanner = () => {
+            document.getElementById('ai-error-banner').classList.add('hidden');
         };
 
         window.showLoading = (title, desc) => {
@@ -483,13 +732,198 @@
             document.getElementById('ai-loading-overlay').classList.remove('flex');
         };
 
-        // --- GEMINI API CALLER ---
-        async function callGemini(prompt, schema = null, systemInstruction = "Bạn là chuyên gia giáo dục, thiết kế bài kiểm tra chuyên nghiệp.") {
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`;
+        function updateAIStatusIndicator(status = 'ready') {
+            const dot = document.getElementById('ai-status-dot');
+            if (!dot) return;
+            if (status === 'ok') {
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            } else if (status === 'error') {
+                dot.className = 'w-2 h-2 rounded-full bg-red-500';
+            } else {
+                const hasCustomUrl = window.aiRuntimeConfig.edgeFunctionUrl && window.aiRuntimeConfig.edgeFunctionUrl !== '/functions/v1/gemini-proxy';
+                dot.className = hasCustomUrl ? 'w-2 h-2 rounded-full bg-emerald-500' : 'w-2 h-2 rounded-full bg-amber-500';
+            }
+        }
+
+        // --- MODAL CẤU HÌNH AI ---
+        window.openAIConfigModal = () => {
+            document.getElementById('cfg-edge-url').value = window.aiRuntimeConfig.edgeFunctionUrl || '';
+            document.getElementById('cfg-supabase-anon').value = window.aiRuntimeConfig.supabaseAnonKey || '';
+            document.getElementById('cfg-gemini-model').value = window.aiRuntimeConfig.preferredModel || 'gemini-2.5-flash';
+            document.getElementById('cfg-timeout-sec').value = Math.round((window.aiRuntimeConfig.timeoutMs || 45000) / 1000);
+            renderTechnicalLogs();
+            document.getElementById('ai-config-modal').classList.add('active');
+        };
+
+        window.closeAIConfigModal = () => {
+            document.getElementById('ai-config-modal').classList.remove('active');
+        };
+
+        window.toggleEdgeCodeGuide = () => {
+            document.getElementById('edge-code-guide').classList.toggle('hidden');
+        };
+
+        window.copyEdgeFunctionCode = async () => {
+            const code = document.getElementById('edge-func-source').innerText;
+            try {
+                await navigator.clipboard.writeText(code);
+                window.showToast("Đã sao chép mã nguồn Supabase Edge Function!");
+            } catch (e) {
+                window.showToast("Không thể sao chép tự động, vui lòng bôi đen để copy.", true);
+            }
+        };
+
+        window.saveAIConfig = () => {
+            const url = document.getElementById('cfg-edge-url').value.trim() || '/functions/v1/gemini-proxy';
+            const anon = document.getElementById('cfg-supabase-anon').value.trim();
+            const model = document.getElementById('cfg-gemini-model').value;
+            const timeoutSec = Math.min(120, Math.max(15, parseInt(document.getElementById('cfg-timeout-sec').value) || 45));
+
+            window.aiRuntimeConfig = {
+                edgeFunctionUrl: url,
+                supabaseAnonKey: anon,
+                preferredModel: model,
+                timeoutMs: timeoutSec * 1000
+            };
+
+            localStorage.setItem('eduai_edge_function_url', url);
+            localStorage.setItem('eduai_supabase_anon_key', anon);
+            localStorage.setItem('eduai_preferred_model', model);
+            localStorage.setItem('eduai_timeout_sec', String(timeoutSec));
+
+            updateAIStatusIndicator('ready');
+            logTechnicalEvent('INFO', 'saveAIConfig', {
+                edgeFunctionUrl: url,
+                model,
+                timeoutSec,
+                hasAnonKey: Boolean(anon)
+            });
+            window.showToast("Đã lưu cấu hình kết nối AI!");
+        };
+
+        window.testAIConnection = async () => {
+            saveAIConfig();
+            const btn = document.getElementById('btn-test-ai');
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Đang kiểm tra...`;
+
+            const testSchema = {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        "id": { type: "INTEGER" },
+                        "topic": { type: "STRING" },
+                        "nb": { type: "INTEGER" },
+                        "th": { type: "INTEGER" },
+                        "vd": { type: "INTEGER" },
+                        "vdc": { type: "INTEGER" }
+                    },
+                    required: ["id", "topic", "nb", "th", "vd", "vdc"]
+                }
+            };
+
+            try {
+                const res = await callGemini(
+                    "Tạo 1 dòng ma trận mẫu cho môn Toán Lớp 10 chủ đề Mệnh đề.",
+                    testSchema,
+                    "Bạn là chuyên gia giáo dục.",
+                    { actionName: "testAIConnection" }
+                );
+                if (Array.isArray(res) && res.length > 0) {
+                    updateAIStatusIndicator('ok');
+                    window.showToast("Kết nối AI & tạo cấu trúc Ma trận thành công!");
+                } else {
+                    throw new Error("Dữ liệu trả về không đúng định dạng mảng ma trận.");
+                }
+            } catch (err) {
+                updateAIStatusIndicator('error');
+                window.showToast(err.userMessage || "Kiểm tra kết nối thất bại. Xem chi tiết ở Nhật ký kỹ thuật.", true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        };
+
+        // --- MAP MÃ LỖI HTTP & NGOẠI LỆ SANG THÔNG BÁO DỄ HIỂU CHO GIÁO VIÊN ---
+        function classifyAndFormatAIError(error, httpStatus = null, rawErrorDetail = "") {
+            let code = httpStatus || error?.httpStatus || 'UNKNOWN';
+            let teacherTitle = "Lỗi khi AI xử lý dữ liệu";
+            let teacherMessage = "Hệ thống chưa thể hoàn tất yêu cầu. Thầy/Cô vui lòng thử lại sau.";
+
+            if (error?.name === 'AbortError' || code === 'TIMEOUT' || code === 408 || code === 504) {
+                code = 'TIMEOUT';
+                teacherTitle = "AI phản hồi quá thời gian chờ (Timeout)";
+                teacherMessage = "Yêu cầu xử lý mất quá nhiều thời gian. Thầy/Cô vui lòng rút gọn bớt nội dung tài liệu/phạm vi kiến thức hoặc kiểm tra kết nối mạng rồi thử lại.";
+            } else if (code === 400) {
+                teacherTitle = "Dữ liệu yêu cầu hoặc cấu trúc không hợp lệ (HTTP 400)";
+                teacherMessage = "Cấu trúc yêu cầu hoặc dữ liệu học liệu gửi lên chưa tương thích với mô hình AI (Lỗi 400: Request/Schema). Vui lòng kiểm tra lại nội dung phạm vi kiến thức hoặc đổi Model Gemini trong phần Kết nối AI.";
+            } else if (code === 401 || code === 403) {
+                teacherTitle = "Lỗi xác thực hoặc quyền truy cập AI (HTTP " + code + ")";
+                teacherMessage = "API Key trên máy chủ trung gian (Supabase Edge Function) chưa được cấu hình, bị trống hoặc không có quyền truy cập (Lỗi " + code + "). Vui lòng kiểm tra cấu hình trong mục 'Kết nối AI'.";
+            } else if (code === 404) {
+                teacherTitle = "Không tìm thấy dịch vụ trung gian hoặc Model AI (HTTP 404)";
+                teacherMessage = "Chưa tìm thấy đường dẫn Supabase Edge Function (/functions/v1/gemini-proxy) hoặc tên Model Gemini không tồn tại. Vui lòng mở nút 'Kết nối AI' trên thanh công cụ để cấu hình URL Supabase Edge Function.";
+            } else if (code === 429) {
+                teacherTitle = "Vượt giới hạn lượt gọi AI (HTTP 429)";
+                teacherMessage = "Hệ thống AI đang nhận quá nhiều yêu cầu cùng lúc hoặc đã chạm hạn mức (Quota/Rate Limit). Thầy/Cô vui lòng đợi khoảng 30 - 60 giây rồi nhấn thực hiện lại.";
+            } else if (code === 500 || code === 502 || code === 503) {
+                teacherTitle = "Dịch vụ AI đang bận hoặc gián đoạn (HTTP " + code + ")";
+                teacherMessage = "Máy chủ xử lý AI hiện đang quá tải hoặc bảo trì tạm thời (Lỗi " + code + "). Thầy/Cô vui lòng thử lại sau ít phút.";
+            } else if (code === 'SCHEMA_PARSE_ERROR') {
+                teacherTitle = "Dữ liệu AI trả về chưa đúng cấu trúc chuẩn";
+                teacherMessage = "AI đã phản hồi nhưng định dạng bảng dữ liệu bị lỗi cú pháp JSON. Thầy/Cô vui lòng nhấn nút thử lại để AI sinh lại chuẩn xác hơn.";
+            } else if (error instanceof TypeError && /fetch|network/i.test(error.message)) {
+                code = 'NETWORK_OR_CORS';
+                teacherTitle = "Không thể kết nối tới máy chủ AI trung gian";
+                teacherMessage = "Trình duyệt không thể kết nối tới Supabase Edge Function. Vui lòng kiểm tra kết nối Internet hoặc nhấn vào nút 'Kết nối AI' trên góc phải để kiểm tra URL Supabase Edge Function.";
+            }
+
+            const enrichedError = new Error(teacherMessage);
+            enrichedError.errorCode = code;
+            enrichedError.userTitle = teacherTitle;
+            enrichedError.userMessage = teacherMessage;
+            enrichedError.technicalDetail = maskSensitiveData(rawErrorDetail || error?.message || "");
+            return enrichedError;
+        }
+
+        // --- HÀM TRÍCH XUẤT & LÀM SẠCH JSON TỪ PHẢN HỒI GEMINI ---
+        function parseGeminiJsonSafe(rawText) {
+            if (!rawText || typeof rawText !== 'string') {
+                throw new Error("Phản hồi từ AI rỗng.");
+            }
+            let cleaned = rawText.trim();
+            // Loại bỏ markdown code fence ```json ... ``` nếu có
+            cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+            try {
+                return JSON.parse(cleaned);
+            } catch (firstErr) {
+                // Thử tìm cặp ngoặc [...] hoặc {...} ngoài cùng
+                const firstBracket = cleaned.search(/[\[{]/);
+                const lastSquare = cleaned.lastIndexOf(']');
+                const lastCurly = cleaned.lastIndexOf('}');
+                const lastBracket = Math.max(lastSquare, lastCurly);
+                if (firstBracket !== -1 && lastBracket > firstBracket) {
+                    const sub = cleaned.substring(firstBracket, lastBracket + 1);
+                    return JSON.parse(sub);
+                }
+                throw firstErr;
+            }
+        }
+
+        // --- GEMINI API CALLER (QUA SUPABASE EDGE FUNCTION + XỬ LÝ LỖI CHI TIẾT) ---
+        async function callGemini(prompt, schema = null, systemInstruction = "Bạn là chuyên gia giáo dục, thiết kế bài kiểm tra chuyên nghiệp.", options = {}) {
+            const actionName = options.actionName || "callGemini";
+            const startTime = performance.now();
+            hideErrorBanner();
+
             const payload = {
                 contents: [{ role: "user", parts: [{ text: prompt }] }],
                 systemInstruction: { parts: [{ text: systemInstruction }] },
-                generationConfig: {}
+                generationConfig: {
+                    temperature: 0.4
+                }
             };
 
             if (schema) {
@@ -497,17 +931,165 @@
                 payload.generationConfig.responseSchema = schema;
             }
 
-            try {
-                const res = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (!res.ok) throw new Error("API Lỗi: " + res.statusText);
-                const data = await res.json();
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!text) throw new Error("Không có dữ liệu trả về từ AI.");
-                return schema ? JSON.parse(text) : text;
-            } catch (err) {
-                console.error("Gemini Error:", err);
-                throw err;
+            // Danh sách model ưu tiên và fallback nếu gặp lỗi model không tương thích (400/404)
+            const primaryModel = options.model || window.aiRuntimeConfig.preferredModel || "gemini-2.5-flash";
+            const modelsToTry = [primaryModel];
+            if (primaryModel !== "gemini-2.5-flash") modelsToTry.push("gemini-2.5-flash");
+            if (!modelsToTry.includes("gemini-2.0-flash")) modelsToTry.push("gemini-2.0-flash");
+
+            const edgeUrl = (window.aiRuntimeConfig.edgeFunctionUrl || '/functions/v1/gemini-proxy').trim();
+            const timeoutMs = options.timeoutMs || window.aiRuntimeConfig.timeoutMs || 45000;
+
+            let lastError = null;
+
+            for (let attempt = 0; attempt < modelsToTry.length; attempt++) {
+                const currentModel = modelsToTry[attempt];
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+                try {
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (window.aiRuntimeConfig.supabaseAnonKey) {
+                        headers['Authorization'] = `Bearer ${window.aiRuntimeConfig.supabaseAnonKey}`;
+                        headers['apikey'] = window.aiRuntimeConfig.supabaseAnonKey;
+                    }
+
+                    logTechnicalEvent('INFO', `${actionName}:request`, {
+                        attempt: attempt + 1,
+                        model: currentModel,
+                        proxyEndpoint: edgeUrl,
+                        hasSchema: Boolean(schema),
+                        promptLength: prompt.length
+                    });
+
+                    const res = await fetch(edgeUrl, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                            model: currentModel,
+                            payload
+                        }),
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+                    const durationMs = Math.round(performance.now() - startTime);
+
+                    let responseBodyText = "";
+                    let data = null;
+                    try {
+                        responseBodyText = await res.text();
+                        data = responseBodyText ? JSON.parse(responseBodyText) : null;
+                    } catch (parseBodyErr) {
+                        data = null;
+                    }
+
+                    if (!res.ok) {
+                        const apiErrorMsg = data?.error?.message || data?.message || res.statusText || `HTTP ${res.status}`;
+                        const apiErrorStatus = data?.error?.status || res.status;
+
+                        logTechnicalEvent('ERROR', `${actionName}:http_error`, {
+                            httpStatus: res.status,
+                            model: currentModel,
+                            durationMs,
+                            apiErrorStatus,
+                            errorDetail: apiErrorMsg
+                        });
+
+                        // Nếu lỗi 400/404 do tên model preview không khả dụng và còn model dự phòng thì tự động thử model tiếp theo
+                        if ((res.status === 400 || res.status === 404) && attempt < modelsToTry.length - 1 && /model|not found|not supported/i.test(apiErrorMsg)) {
+                            logTechnicalEvent('WARN', `${actionName}:fallback_model`, {
+                                fromModel: currentModel,
+                                toModel: modelsToTry[attempt + 1]
+                            });
+                            continue;
+                        }
+
+                        throw classifyAndFormatAIError(new Error(apiErrorMsg), res.status, apiErrorMsg);
+                    }
+
+                    // Kiểm tra trường hợp Gemini trả về 200 nhưng bên trong có object error hoặc bị chặn bởi safety filter
+                    if (data?.error) {
+                        const errCode = data.error.code || 500;
+                        const errMsg = data.error.message || "Lỗi từ phản hồi Gemini API.";
+                        logTechnicalEvent('ERROR', `${actionName}:api_payload_error`, {
+                            httpStatus: errCode,
+                            model: currentModel,
+                            durationMs,
+                            errorDetail: errMsg
+                        });
+                        throw classifyAndFormatAIError(new Error(errMsg), errCode, errMsg);
+                    }
+
+                    const candidate = data?.candidates?.[0];
+                    if (candidate?.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
+                        logTechnicalEvent('WARN', `${actionName}:finish_reason`, {
+                            finishReason: candidate.finishReason,
+                            model: currentModel
+                        });
+                    }
+
+                    const text = candidate?.content?.parts?.[0]?.text;
+                    if (!text) {
+                        logTechnicalEvent('ERROR', `${actionName}:empty_response`, {
+                            model: currentModel,
+                            durationMs,
+                            finishReason: candidate?.finishReason || 'NONE'
+                        });
+                        throw classifyAndFormatAIError(new Error("Không có dữ liệu văn bản trả về từ AI."), 500, "Empty candidates[0].content.parts[0].text");
+                    }
+
+                    if (schema) {
+                        try {
+                            const parsedJson = parseGeminiJsonSafe(text);
+                            logTechnicalEvent('INFO', `${actionName}:success`, {
+                                model: currentModel,
+                                durationMs,
+                                itemCount: Array.isArray(parsedJson) ? parsedJson.length : 1
+                            });
+                            updateAIStatusIndicator('ok');
+                            return parsedJson;
+                        } catch (jsonErr) {
+                            logTechnicalEvent('ERROR', `${actionName}:schema_parse_error`, {
+                                model: currentModel,
+                                durationMs,
+                                parseError: jsonErr.message,
+                                sampleOutput: text.substring(0, 200)
+                            });
+                            throw classifyAndFormatAIError(jsonErr, 'SCHEMA_PARSE_ERROR', jsonErr.message);
+                        }
+                    }
+
+                    logTechnicalEvent('INFO', `${actionName}:success`, {
+                        model: currentModel,
+                        durationMs
+                    });
+                    updateAIStatusIndicator('ok');
+                    return text;
+
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    const durationMs = Math.round(performance.now() - startTime);
+
+                    if (err.userMessage) {
+                        lastError = err;
+                    } else {
+                        lastError = classifyAndFormatAIError(err, null, err.message);
+                        logTechnicalEvent('ERROR', `${actionName}:exception`, {
+                            model: currentModel,
+                            durationMs,
+                            errorCode: lastError.errorCode,
+                            errorDetail: lastError.technicalDetail
+                        });
+                    }
+
+                    // Nếu là lỗi mạng, timeout, 401/403, 429, 500/503 thì dừng ngay để báo cho giáo viên
+                    break;
+                }
             }
+
+            updateAIStatusIndicator('error');
+            throw lastError || classifyAndFormatAIError(new Error("Lỗi không xác định khi gọi AI."));
         }
 
         // --- FILE PARSING ---
@@ -542,7 +1124,7 @@
                     ta.value += (ta.value ? "\n\n" : "") + "--- NỘI DUNG TỪ FILE ---\n" + text.substring(0, 500) + "...";
                 }
             } catch (e) {
-                console.error(e);
+                logTechnicalEvent('ERROR', 'handleFileUpload', { fileName: file.name, error: e.message });
                 window.showToast("Lỗi khi đọc file. Vui lòng copy paste văn bản trực tiếp.", true);
             }
         };
@@ -551,13 +1133,15 @@
 
         // STEP 1 -> 2: Matrix
         window.generateMatrixAI = async () => {
-            const mon = document.getElementById('p-monhoc').value;
+            const mon = document.getElementById('p-monhoc').value.trim();
             const lop = document.getElementById('p-khoilop').value;
             const caphoc = document.getElementById('p-caphoc').value;
             const cautruc = document.getElementById('p-cautruc').value;
-            const textScope = document.getElementById('p-phamvi').value + "\n" + window.projectState.extractedText.substring(0, 3000);
+            const userScope = document.getElementById('p-phamvi').value.trim();
+            const extractedScope = (window.projectState.extractedText || "").substring(0, 3000).trim();
+            const textScope = (userScope + "\n" + extractedScope).trim();
             
-            if(!textScope.trim()) {
+            if(!textScope) {
                 window.showToast("Vui lòng nhập phạm vi kiến thức hoặc tải tài liệu!", true);
                 return false;
             }
@@ -588,14 +1172,38 @@
             const prompt = `Phân tích phạm vi kiến thức sau của môn ${mon}, ${lop}. Lập ma trận đề kiểm tra gồm 4-6 chủ đề chính. \nQuy định: ${rule} \nPhân bổ tổng số câu hỏi khoảng 15-40 câu. \nNội dung phạm vi: ${textScope}`;
 
             try {
-                const matrix = await callGemini(prompt, schema);
-                window.projectState.matrix = matrix;
+                const rawMatrix = await callGemini(
+                    prompt,
+                    schema,
+                    "Bạn là chuyên gia giáo dục, thiết kế bài kiểm tra chuyên nghiệp.",
+                    { actionName: "generateMatrixAI" }
+                );
+
+                if (!Array.isArray(rawMatrix) || rawMatrix.length === 0) {
+                    throw classifyAndFormatAIError(new Error("Dữ liệu ma trận trả về rỗng hoặc không phải danh sách chủ đề."), 'SCHEMA_PARSE_ERROR');
+                }
+
+                // Chuẩn hóa dữ liệu từng dòng ma trận để đảm bảo không bị lỗi NaN hoặc sai quy định cấp học
+                const normalizedMatrix = rawMatrix.map((row, idx) => ({
+                    id: Number.isInteger(row.id) ? row.id : (idx + 1),
+                    topic: String(row.topic || `Chủ đề ${idx + 1}`).trim(),
+                    nb: Math.max(0, parseInt(row.nb) || 0),
+                    th: Math.max(0, parseInt(row.th) || 0),
+                    vd: Math.max(0, parseInt(row.vd) || 0),
+                    vdc: caphoc === "Tiểu học" ? 0 : Math.max(0, parseInt(row.vdc) || 0)
+                }));
+
+                window.projectState.matrix = normalizedMatrix;
                 renderMatrix();
                 hideLoading();
+                window.showToast("AI đã lập ma trận đề kiểm tra thành công!");
                 return true;
             } catch(e) {
                 hideLoading();
-                window.showToast("Lỗi khi gọi AI tạo ma trận. Thử lại sau.", true);
+                const msg = e.userMessage || "Lỗi khi gọi AI tạo ma trận. Vui lòng kiểm tra kết nối hoặc thử lại sau.";
+                const title = e.userTitle || "Không thể lập ma trận đề kiểm tra";
+                window.showToast(msg, true, 6000);
+                window.showErrorBanner(title, msg);
                 return false;
             }
         };
@@ -624,10 +1232,16 @@
             const prompt = `Dựa vào ma trận đề: ${matrixJson}. Hãy lập bản đặc tả theo chuẩn CT GDPT 2018. Chi tiết hóa thành các 'Yêu cầu cần đạt' cụ thể (bắt đầu bằng động từ: Nhận biết được, Tính được, Giải thích được...). Số lượng yêu cầu cần đạt phải khớp với số câu trong ma trận.`;
 
             try {
-                const specs = await callGemini(prompt, schema);
+                const specs = await callGemini(
+                    prompt,
+                    schema,
+                    "Bạn là chuyên gia giáo dục, thiết kế bài kiểm tra chuyên nghiệp.",
+                    { actionName: "generateSpecsAI" }
+                );
                 specs.forEach(s => {
                     const t = window.projectState.matrix.find(m => m.id === s.topicId);
                     s.topic = t ? t.topic : 'Chủ đề ' + s.topicId;
+                    s.count = Math.max(0, parseInt(s.count) || 0);
                 });
                 window.projectState.specs = specs;
                 renderSpecs();
@@ -635,7 +1249,9 @@
                 return true;
             } catch(e) {
                 hideLoading();
-                window.showToast("Lỗi khi tạo bản đặc tả.", true);
+                const msg = e.userMessage || "Lỗi khi tạo bản đặc tả. Vui lòng thử lại.";
+                window.showToast(msg, true, 6000);
+                window.showErrorBanner(e.userTitle || "Lỗi khi lập bản đặc tả", msg);
                 return false;
             }
         };
@@ -695,7 +1311,12 @@
             }
 
             try {
-                const qList = await callGemini(rules, schema, "Bạn là Giáo viên Cốt cán, ra đề thi chuyên nghiệp, không bao giờ sai kiến thức cốt lõi. Công thức Toán học luôn chuẩn xác.");
+                const qList = await callGemini(
+                    rules,
+                    schema,
+                    "Bạn là Giáo viên Cốt cán, ra đề thi chuyên nghiệp, không bao giờ sai kiến thức cốt lõi. Công thức Toán học luôn chuẩn xác.",
+                    { actionName: "generateQuestionsAI", timeoutMs: Math.max(60000, window.aiRuntimeConfig.timeoutMs) }
+                );
                 qList.forEach((q, idx) => {
                     q._id = 'q_' + Date.now() + '_' + idx;
                     if(!q.mcqOptions) q.mcqOptions = [];
@@ -708,7 +1329,9 @@
                 return true;
             } catch(e) {
                 hideLoading();
-                window.showToast("Lỗi khi tạo câu hỏi. Hãy thử lại.", true);
+                const msg = e.userMessage || "Lỗi khi tạo câu hỏi. Hãy thử lại.";
+                window.showToast(msg, true, 6000);
+                window.showErrorBanner(e.userTitle || "Lỗi khi sinh đề thi gốc", msg);
                 return false;
             }
         };
@@ -733,20 +1356,26 @@
                     "tfStatements": { type: "ARRAY", items: { type: "STRING" } },
                     "tfCorrect": { type: "ARRAY", items: { type: "BOOLEAN" } },
                     "shortAnswer": { type: "STRING" }
-                }
+                },
+                required: ["type", "content"]
             };
             const mon = document.getElementById('p-monhoc').value;
             const prompt = `Viết lại 1 câu hỏi môn ${mon} mức độ ${q.level} loại ${q.type}. Nội dung TƯƠNG ĐƯƠNG câu này nhưng thay đổi số liệu, ngữ liệu hoặc góc hỏi: "${q.content}".`;
 
             try {
-                const newQ = await callGemini(prompt, schema);
+                const newQ = await callGemini(
+                    prompt,
+                    schema,
+                    "Bạn là chuyên gia giáo dục, thiết kế bài kiểm tra chuyên nghiệp.",
+                    { actionName: "regenerateSingleQuestion" }
+                );
                 window.projectState.questions[qIndex] = { ...q, ...newQ };
                 if(!window.projectState.questions[qIndex].mcqOptions) window.projectState.questions[qIndex].mcqOptions = [];
                 if(!window.projectState.questions[qIndex].tfStatements) window.projectState.questions[qIndex].tfStatements = [];
                 renderQuestions();
                 window.showToast("Đã thay đổi câu hỏi!");
             } catch(e) {
-                window.showToast("Lỗi khi đổi câu.", true);
+                window.showToast(e.userMessage || "Lỗi khi đổi câu.", true);
                 icon.classList.remove('fa-spin');
                 btn.disabled = false;
             }
@@ -851,14 +1480,18 @@
             const tbody = document.getElementById('matrix-body');
             let html = '';
             window.projectState.matrix.forEach((row, i) => {
-                const total = row.nb + row.th + row.vd + row.vdc;
+                const nb = parseInt(row.nb) || 0;
+                const th = parseInt(row.th) || 0;
+                const vd = parseInt(row.vd) || 0;
+                const vdc = parseInt(row.vdc) || 0;
+                const total = nb + th + vd + vdc;
                 html += `
                     <tr class="hover:bg-slate-50 transition" data-id="${row.id}">
                         <td class="px-6 py-3 border-r border-slate-200"><input type="text" class="w-full bg-transparent outline-none m-topic font-medium" value="${row.topic}"></td>
-                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.nb}" class="matrix-input nb" onchange="recalculateMatrix()"></td>
-                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.th}" class="matrix-input th" onchange="recalculateMatrix()"></td>
-                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.vd}" class="matrix-input vd" onchange="recalculateMatrix()"></td>
-                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${row.vdc}" class="matrix-input vdc" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${nb}" class="matrix-input nb" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${th}" class="matrix-input th" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${vd}" class="matrix-input vd" onchange="recalculateMatrix()"></td>
+                        <td class="px-2 py-2 border-r border-slate-200 text-center"><input type="number" min="0" value="${vdc}" class="matrix-input vdc" onchange="recalculateMatrix()"></td>
                         <td class="px-4 py-3 text-center bg-blue-50/50 font-medium row-total">${total}</td>
                         <td class="w-10 text-center"><button onclick="this.closest('tr').remove(); recalculateMatrix()" class="text-red-400 hover:text-red-600"><i class="fa-solid fa-trash"></i></button></td>
                     </tr>
@@ -1089,7 +1722,7 @@
                 });
                 out += `</table>`;
 
-                out += `<h2>2. BẢN ĐẶC TẢ CHI TIẾT</h2>`;
+                out += `<h2>2. BẢN ĐC TẢ CHI TIẾT</h2>`;
                 out += `<table><tr><th width="20%">Chủ đề</th><th width="15%">Mức độ</th><th width="50%">Yêu cầu cần đạt / Tiêu chí đánh giá</th><th width="15%">Số câu</th></tr>`;
                 window.projectState.specs.forEach(s => {
                     out += `<tr><td>${s.topic}</td><td class="text-center">${s.level}</td><td>${s.desc}</td><td class="text-center"><b>${s.count}</b></td></tr>`;
@@ -1179,7 +1812,7 @@
                         out += `<p class="section-title">PHẦN III. HƯỚNG DẪN CHẤM TRẢ LỜI NGẮN / TỰ LUẬN</p>`;
                         shorts.forEach(q => {
                             out += `<p><span class="q-title">Câu ${qCounter++}:</span> ${q.content}</p>`;
-                            out += `<p><b>Hướng dẫn chấm:</b><br/> ${q.shortAnswer.replace(/\n/g, '<br/>')}</p><hr/>`;
+                            out += `<p><b>Hướng dẫn chấm:</b><br/> ${(q.shortAnswer || '').replace(/\n/g, '<br/>')}</p><hr/>`;
                         });
                     }
                     out += `<div class="page-break"></div>`;
@@ -1239,7 +1872,7 @@
                 hideLoading();
                 window.showToast("Đã lưu dự án lên Cloud!");
             } catch(e) {
-                console.error(e);
+                logTechnicalEvent('ERROR', 'saveProjectToCloud', { error: e.message });
                 hideLoading();
                 window.showToast("Lỗi khi lưu.", true);
             }
@@ -1280,6 +1913,7 @@
                 html += '</div>';
                 listDiv.innerHTML = html;
             } catch(e) {
+                logTechnicalEvent('ERROR', 'openBankModal', { error: e.message });
                 listDiv.innerHTML = `<div class="text-center text-red-500 py-10">Lỗi tải dữ liệu.</div>`;
             }
         };
@@ -1311,6 +1945,7 @@
                     window.showToast("Tải đề thành công!");
                 }
             } catch(e) {
+                logTechnicalEvent('ERROR', 'loadProject', { projectId: pid, error: e.message });
                 hideLoading();
                 window.showToast("Lỗi khi mở đề.", true);
             }
@@ -1347,12 +1982,16 @@
                 currentStep = 1;
                 document.getElementById('p-phamvi').value = "";
                 document.getElementById('file-name-display').innerText = "Click hoặc Kéo thả Ma trận mẫu / SGK";
+                hideErrorBanner();
                 updateUI();
             }
         };
 
         // Init Setup
-        document.addEventListener('DOMContentLoaded', () => { updateUI(); });
+        document.addEventListener('DOMContentLoaded', () => {
+            updateUI();
+            updateAIStatusIndicator('ready');
+        });
     </script>
 </body>
 </html>
